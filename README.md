@@ -27,4 +27,4 @@ The agent navigates a hazardous grid to collect gold while avoiding pits and a m
 ## How to Run
 1. Clone the repository
 2. Install dependencies (if needed)
-3. Run the game (.py file)
+3. Run the game (src file)
