@@ -1,3 +1,4 @@
+# Wumpus-World
 An interactive implementation of the classic Wumpus World problem, demonstrating search algorithms, logical reasoning, and agent-based decision-making. Built in Python with a visual interface using Pygame.
 The agent navigates a hazardous grid to collect gold while avoiding pits and a moving Wumpus.
 
