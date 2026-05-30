@@ -142,7 +142,7 @@ IMAGE_SIZES = {
 }
 
 # Set up the display
-screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE) # Creates the game window with the specified dimensions
+screen = pygame.display.set_mode((WIDTH, HEIGHT)) # Creates the game window with the specified dimensions
 pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
 clock = pygame.time.Clock() # Tracks time and ensures consistent game speed across devices
 
@@ -1294,9 +1294,6 @@ async def main():
             elif event.type == pygame.FINGERDOWN:  # Touch event — must be a touch device
                 world.show_mobile_controls = True   # Reveal on-screen controls permanently
 
-            elif event.type == pygame.VIDEORESIZE: # Handle window resize
-                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE) # Update screen with new size
-            
             elif event.type == pygame.KEYDOWN: # Checks if any key is being pressed
                 if world.show_rules:  # Check if rules screen is currently displayed
                     # Pressing any key dismisses the rules screen
@@ -1329,6 +1326,5 @@ async def main():
         await asyncio.sleep(0) # Yield control to browser — required by pygbag
 
     pygame.quit()
-    sys.exit()
 
 asyncio.run(main())
