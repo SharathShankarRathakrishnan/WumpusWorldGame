@@ -5,6 +5,7 @@ import math
 import random # For generating Wumpus, pits and gold.
 import heapq # Provides priority queue functions for A* pathfinding algorithm
 import time # For cooldown timer in scout mode
+import asyncio # Required by pygbag for web builds
 
 # Base directory: folder where wumpus.py lives, so images are always found
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1208,10 +1209,9 @@ def draw_rules_screen():
         screen.blit(text_surface, (text_x, y_offset))  # Draws the text at calculated position
         y_offset += text_surface.get_height() + 5  # Moves down for next line (with 5px gap)
 
-def main():
+async def main():
     global screen
     world = GameWorld() # Creates the game world with default 6x6 grid
-    # ... (rest of the code remains the same)
     running = True
     while running:
         for event in pygame.event.get(): # Check all pending events
@@ -1326,9 +1326,9 @@ def main():
         
         pygame.display.flip() # Update display
         clock.tick(30) # Maintain 30 FPS
-    
+        await asyncio.sleep(0) # Yield control to browser — required by pygbag
+
     pygame.quit()
     sys.exit()
 
-if __name__ == "__main__":
-    main()
+asyncio.run(main())
