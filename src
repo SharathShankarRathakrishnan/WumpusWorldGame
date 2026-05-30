@@ -1,0 +1,646 @@
+import pygame 
+import sys
+import random # For generating Wumpus, pits and gold.
+import heapq # Provides priority queue functions for A* pathfinding algorithm
+import time # For cooldown timer in scout mode
+
+# Initialize all pygame modules
+pygame.init()
+
+# Constants
+BASE_GRID_SIZE = 6  # Starting grid size of 6x6
+MAX_GRID_SIZE = 10   # Maximum grid size of 10x10
+CELL_SIZE = 80 # Size of each cell inside the grid
+MARGIN = 45 # Space between the grid and window edges
+WIDTH = MAX_GRID_SIZE * CELL_SIZE + 2 * MARGIN  # Use max size for window
+HEIGHT = MAX_GRID_SIZE * CELL_SIZE + 2 * MARGIN + 80  # Extra space for buttons
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (200, 200, 200)
+RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+GOLD = (255, 215, 0)
+BUTTON_COLOR = (100, 200, 100)
+BUTTON_HOVER = (100, 230, 100) # Highlights the button when cursor hovers over
+CONTINUE_COLOR = (200, 150, 0)
+CONTINUE_HOVER = (230, 180, 0) # Highlights the button when cursor hovers over
+SCOUT_COLOR = (255, 255, 0, 150)  # Yellow with transparency for scout mode
+
+# Image size configurations
+IMAGE_SIZES = {
+    'agent': (30, 45),
+    'gold': (60, 40),
+    'wumpus': (50, 50),
+    'pit': (50, 40),
+    'stench': (30, 70),
+    'breeze': (75, 30)
+}
+
+# Set up the display
+screen = pygame.display.set_mode((WIDTH, HEIGHT)) # Creates the game window with the specified dimensions
+pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
+clock = pygame.time.Clock() # Tracks time and ensures consistent game speed across devices
+
+def load_image(image_name, default_color=None, target_size=None):
+    try:
+        original_img = pygame.image.load(image_name).convert_alpha() # Optimizes images for transparency
+        
+        if target_size:
+            return pygame.transform.smoothscale(original_img, target_size) 
+        else:
+            img_type = image_name.split('.')[0]
+            if img_type in IMAGE_SIZES:
+                return pygame.transform.smoothscale(original_img, IMAGE_SIZES[img_type]) # Resizes the image smoothly to the target dimensions
+            # If the image is not found in IMAGE_SIZES
+            max_size = CELL_SIZE - 20 # Makes sure and image without pre-defined size fits in the cell.
+            width, height = original_img.get_size()
+            aspect_ratio = width / height
+            
+            if width > height: # Determines if the image is landscape or portrait
+                new_width = max_size
+                new_height = int(max_size / aspect_ratio)
+            else:
+                new_height = max_size
+                new_width = int(max_size * aspect_ratio)
+            
+            return pygame.transform.smoothscale(original_img, (new_width, new_height)) # Final scaled image with preserved aspect ratio 
+    except Exception as e:
+        print(f"Error loading {image_name}: {e}")
+        if target_size:
+            surf = pygame.Surface(target_size, pygame.SRCALPHA) # Creates a blank image with transparency
+        else:
+            img_type = image_name.split('.')[0]
+            size = IMAGE_SIZES.get(img_type, (CELL_SIZE-20, CELL_SIZE-20))
+            surf = pygame.Surface(size, pygame.SRCALPHA)
+        if default_color:
+            if len(default_color) == 3:
+                default_color = default_color + (155,)
+            pygame.draw.rect(surf, default_color, surf.get_rect())
+        return surf
+
+# Load all game element images
+agent_img = load_image('agent.png', default_color=(0, 0, 255))
+gold_img = load_image('gold.png', default_color=(255, 215, 0))
+wumpus_img = load_image('wumpus.png', default_color=(255, 0, 0))
+pit_img = load_image('pit.png', default_color=(0, 0, 0))
+stench_img = load_image('stench.png', default_color=(200, 0, 0, 150))
+breeze_img = load_image('breeze.png', default_color=(100, 100, 255, 150))
+game_over_img = load_image('game_over.png', default_color=(200, 0, 0, 200), target_size=(400, 200))
+victory_img = load_image('victory.png', default_color=(0, 200, 0, 200), target_size=(400, 200))
+
+class GameWorld:
+    def __init__(self):
+        self.grid_size = BASE_GRID_SIZE
+        self.marked_cells = set() # Creates a set to track cells marked by the player
+        self.scout_mode = False
+        self.scout_cooldown = 10 # Initial 30-second cooldown
+        self.scout_start_time = time.time() # Records the timestamp when scout mode was last activated (for cooldown calculation)
+        self.scout_visible_time = 0 # Tracks when scout mode was last made visible (for duration control)
+        self.scout_adjacent_cells = set() # Stores cells revealed during scout mode
+        self.reset_world()
+        
+    def _path_exists_a_star(self):
+        "A* pathfinding check to ensure path from start to gold exists"
+        start = tuple(self.agent_pos) # Converts agent position to a tuple
+        gold = self.gold_pos # Position of gold
+        
+        def heuristic(a, b): # Defines Manhattan distance heuristic for A* algorithm
+            return abs(a[0] - b[0]) + abs(a[1] - b[1])
+        
+        open_set = []
+        heapq.heappush(open_set, (0, start)) # Initializes the priority queue with the starting position and priority 0
+        came_from = {} # Tracks the path
+        g_score = {start: 0} # Cost from start to current node
+        f_score = {start: heuristic(start, gold)} # Estimated total cost (g_score + heuristic)
+        
+        directions = [(0,1), (1,0), (0,-1), (-1,0)] # Possible movement directions (up, right, down, left)
+        
+        while open_set:
+            _, current = heapq.heappop(open_set) # Processes nodes in the priority queue until empty
+            
+            if current == gold: # If gold is reached it returns true
+                return True
+            
+            for dx, dy in directions:
+                neighbor = (current[0] + dx, current[1] + dy) # Calculates neighbor coordinates
+                
+                if (0 <= neighbor[0] < self.grid_size and 
+                    0 <= neighbor[1] < self.grid_size and 
+                    neighbor not in self.pits): # Checks if neighbor is within bounds and not a pit
+                    
+                    tentative_g_score = g_score[current] + 1 # This is just the cost so far plus the cost to move to the next cell
+                    
+                    if neighbor not in g_score or tentative_g_score < g_score[neighbor]: # This checks if we have visited the neighbor cell already
+                        came_from[neighbor] = current # If we haven't visited neighbor then this means that I reached neighbor from prev.cell
+                        g_score[neighbor] = tentative_g_score
+                        f_score[neighbor] = tentative_g_score + heuristic(neighbor, gold)
+                        heapq.heappush(open_set, (f_score[neighbor], neighbor))
+        
+        return False # return False if no path exists
+        
+    def calculate_optimal_moves(self):
+        """Optimized calculation of moves to gold and back using single A* search"""
+        start = (0, self.grid_size-1)
+        gold = self.gold_pos
+        
+        # A* from start to gold
+        open_set = []
+        heapq.heappush(open_set, (0, start))
+        came_from = {}
+        g_score = {start: 0}
+        f_score = {start: abs(start[0]-gold[0]) + abs(start[1]-gold[1])}
+        
+        directions = [(0,1), (1,0), (0,-1), (-1,0)]
+        
+        while open_set:
+            _, current = heapq.heappop(open_set)
+            
+            if current == gold:
+                break
+            
+            for dx, dy in directions:
+                neighbor = (current[0] + dx, current[1] + dy)
+                
+                if (0 <= neighbor[0] < self.grid_size and 
+                    0 <= neighbor[1] < self.grid_size and 
+                    neighbor not in self.pits):
+                    
+                    tentative_g_score = g_score[current] + 1
+                    
+                    if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
+                        came_from[neighbor] = current
+                        g_score[neighbor] = tentative_g_score
+                        f_score[neighbor] = tentative_g_score + abs(neighbor[0]-gold[0]) + abs(neighbor[1]-gold[1])
+                        heapq.heappush(open_set, (f_score[neighbor], neighbor))
+        
+        # Reconstruct path to gold
+        path_to_gold = []
+        if gold in came_from:
+            current = gold
+            while current != start:
+                path_to_gold.append(current)
+                current = came_from[current]
+            path_to_gold.reverse()
+        
+        # Return double the one-way path length (to gold and back)
+        return len(path_to_gold) * 2 if path_to_gold else float('inf')
+        
+    def reset_world(self, new_size=None):
+        """Initialize or reset the game world with random positions"""
+        if new_size is None:
+            self.grid_size = BASE_GRID_SIZE
+        else:
+            self.grid_size = new_size
+            
+        self.agent_pos = [0, self.grid_size-1]
+        self.move_count = 0
+        self.player_move_count = 0
+        self.has_gold = False
+        self.has_arrow = True
+        self.wumpus_alive = True
+        self.game_over = False
+        self.game_over_message = []
+        self.gold_collected_message = ""
+        self.explored = set()
+        self.explored.add((0, self.grid_size-1))
+        self.show_continue = False
+        self.optimal_moves = 0
+        self.marked_cells = set()
+        self.scout_mode = False
+        self.scout_cooldown = 10
+        self.scout_start_time = time.time()
+        self.scout_visible_time = 0
+        self.scout_adjacent_cells = set()
+        
+        # Place Wumpus
+        while True:
+            x, y = random.randint(0, self.grid_size-1), random.randint(0, self.grid_size-1) # This generates a random value for x,y in the range 0, grid_size - 1
+            if (x, y) != tuple(self.agent_pos): # This checks that the generated value is not same as agent position
+                self.wumpus_pos = (x, y) # If it is not the same as agent then the Wumpus is placed there
+                break
+        
+        # Place Gold
+        while True:
+            x, y = random.randint(0, self.grid_size-1), random.randint(0, self.grid_size-1)
+            if (x, y) != tuple(self.agent_pos) and (x, y) != self.wumpus_pos: # This checks that the generated value is not same as agent position and Wumpus position
+                self.gold_pos = (x, y) # Places the gold
+                break
+        
+        # Calculate number of pits
+        num_pits = 3 + 4 * (self.grid_size - BASE_GRID_SIZE) # This is to add 4 more pits for next level
+        
+        # Place Pits
+        self.pits = []
+        start_x, start_y = 0, self.grid_size-1 # The actual start in our game
+        # Prohibited pit locations, all 4 sides of start
+        adjacent_to_start = [ 
+            (start_x + 1, start_y),
+            (start_x, start_y - 1),
+            (start_x, start_y + 1),
+            (start_x - 1, start_y)
+        ]
+        
+        attempts = 0 # Tracks the attempts to place pits and makes sure it won't be an infinite loop, so max is 100 attempts
+        max_attempts = 100
+        
+        while len(self.pits) < num_pits and attempts < max_attempts:
+            attempts += 1
+            x, y = random.randint(0, self.grid_size-1), random.randint(0, self.grid_size-1) # Generates random x and y for pit coordinates
+            pos = (x, y) # Stores them as pos
+            # Checks if pos is not same as agent, gold, Wumpus, already placed pit, and not in prohibited locations
+            if (pos != tuple(self.agent_pos) and 
+                pos != self.wumpus_pos and 
+                pos != self.gold_pos and 
+                pos not in self.pits and 
+                pos not in adjacent_to_start):
+                
+                self.pits.append(pos) # Adds the pit to list
+                
+                if not self._path_exists_a_star(): # After placing the pit, the A* pathfinding function is called to check if a path exists to gold, if not remove that pit
+                    self.pits.pop()
+        
+        if attempts >= max_attempts: 
+            print(f"Warning: Could only place {len(self.pits)} of {num_pits} pits while maintaining valid path")
+        
+        self.optimal_moves = self.calculate_optimal_moves() # Calculates the optimal moves
+        self.update_perceptions() 
+    
+    def activate_scout_mode(self):
+        """Activate scout mode to reveal adjacent cells"""
+        current_time = time.time() # Gets the current time
+        if current_time - self.scout_start_time >= 10 and self.scout_cooldown <= 0: # Checks if 30 seconds are over and cooldown is ready
+            self.scout_mode = True # Enable scout mode
+            self.scout_visible_time = current_time # Record when scout mode was activated
+            self.scout_cooldown = 10 # Reset cooldown timer to 30 seconds
+            self.scout_start_time = current_time # Update last activation time
+            
+            x, y = self.agent_pos # Gets the position of agent
+            self.scout_adjacent_cells = set() # Empty set for adjacent cells
+            for dx, dy in [(0,1),(1,0),(0,-1),(-1,0)]: # All 4 adjacent directions
+                nx, ny = x + dx, y + dy # Calculates neighbor coordinates
+                if 0 <= nx < self.grid_size and 0 <= ny < self.grid_size: # Checks if neighbor within grid bounds
+                    self.scout_adjacent_cells.add((nx, ny)) # Adds the neighbor to set
+                    self.explored.add((nx, ny)) # Adds neighbor to explored set
+    
+    def move_wumpus(self):
+        """Move the Wumpus every 3 player moves"""
+        if not self.wumpus_alive: # Check if Wumpus is alive
+            return
+            
+        wx, wy = self.wumpus_pos # Get current location of Wumpus
+        candidates = [] # Empty candidates list
+        for dx, dy in [(0,1),(1,0),(0,-1),(-1,0)]: # All 4 adjacent directions Wumpus can move to
+            nx, ny = wx + dx, wy + dy # New locations of Wumpus
+            if 0 <= nx < self.grid_size and 0 <= ny < self.grid_size: # Checks if neighbor within grid bounds
+                if (nx, ny) not in self.pits: # Checks if position has a pit
+                    weight = 3 if (nx, ny) not in self.explored else 1 # Unexplored cells have a 3x chance to be picked
+                    candidates.extend([(nx, ny)] * weight) # Adds each valid position to candidate multiplied by their weights
+        
+        if candidates:
+            new_pos = random.choice(candidates) # Randomly picking one from the candidates list
+            if new_pos != self.wumpus_pos:
+                self.wumpus_pos = new_pos # Move wumpus to new position
+                self.update_perceptions()
+                print(f"Wumpus moved to {self.wumpus_pos}!")
+    
+    def update_perceptions(self):
+        """Update stench and breeze locations"""
+        self.stench = set() # Empty set for stench cells
+        self.breeze = set() # Empty set for breeze cells
+        
+        if self.wumpus_alive: # When Wumpus is alive
+            wx, wy = self.wumpus_pos # Get Wumpus position
+            for dx, dy in [(0,1),(1,0),(0,-1),(-1,0)]: # Check all 4 adjacent cells for stench
+                nx, ny = wx + dx, wy + dy # Calculate neighbor coordinates
+                if 0 <= nx < self.grid_size and 0 <= ny < self.grid_size: # Ensures neighbor within grid bounds
+                    self.stench.add((nx, ny)) # Adds stench to valid cells
+        
+        for px, py in self.pits: # Checks each pit in pits list
+            for dx, dy in [(0,1),(1,0),(0,-1),(-1,0)]: 
+                nx, ny = px + dx, py + dy
+                if 0 <= nx < self.grid_size and 0 <= ny < self.grid_size:
+                    self.breeze.add((nx, ny)) # Adds breeze to valid cells
+    
+    def get_current_perceptions(self):
+        """Get the perceptions that should be visible based on current agent position"""
+        current_perceptions = {
+            'stench': set(), # Empty set for stench
+            'breeze': set() # Empty set for breeze
+        }
+        
+        for cell in self.explored: # Loops through the cells explored by the player
+            if cell in self.stench: # Checks if the current explored cell has a stench
+                current_perceptions['stench'].add(cell) # If yes, adds that explored cell to stench set
+            if cell in self.breeze: # Checks if the current explored cell has a breeze
+                current_perceptions['breeze'].add(cell) # If yes, adds that explored cell to breeze set
+        
+        return current_perceptions # Return the result
+
+def draw_game(world):
+    """Draw the entire game state"""
+    screen.fill(WHITE) # White background to the game screen
+    mouse_pos = pygame.mouse.get_pos() # Tracks mouse position for mouse hover effects
+    
+    # Update scout mode cooldown
+    current_time = time.time() # Gets current time
+    if world.scout_cooldown > 0: 
+        world.scout_cooldown = max(0, 10 - (current_time - world.scout_start_time)) # If scout mode is cooling down, updates remaining cooldown
+    
+    # Check if scout mode should be deactivated
+    if world.scout_mode and current_time - world.scout_visible_time >= 1:
+        world.scout_mode = False
+    
+    if not world.game_over:
+        # Calculate grid offset to center it in the window
+        grid_width = world.grid_size * CELL_SIZE
+        grid_height = world.grid_size * CELL_SIZE
+        grid_x = (WIDTH - grid_width) // 2
+        grid_y = (HEIGHT - grid_height - 40) // 2
+        
+        # Display pit count
+        pit_font = pygame.font.SysFont('Arial', 20)
+        pit_text = pit_font.render(f"Pits: {len(world.pits)}", True, BLUE)
+        screen.blit(pit_text, (WIDTH - 100, 50)) # Placing the pit text on top right corner of the game window
+        
+        # Get current visible perceptions
+        current_perceptions = world.get_current_perceptions()
+        
+        # Draw grid cells
+        for row in range(world.grid_size): 
+            for col in range(world.grid_size):
+                rect = pygame.Rect(
+                    grid_x + col * CELL_SIZE,
+                    grid_y + row * CELL_SIZE,
+                    CELL_SIZE, CELL_SIZE
+                )
+                pygame.draw.rect(screen, GRAY, rect, 1) # Gray border for cells and grid
+                
+                # Draw scout mode highlight
+                if world.scout_mode and (col, row) in world.scout_adjacent_cells:
+                    highlight = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
+                    highlight.fill(SCOUT_COLOR) 
+                    screen.blit(highlight, (rect.x, rect.y))
+                
+                # Coordinate labels
+                font = pygame.font.SysFont(None, 20)
+                coord_text = font.render(f"{col+1},{world.grid_size-row}", True, BLACK) # This makes the grid inverse making start as bottom-left (1,1)
+                screen.blit(coord_text, (rect.x + 5, rect.y + 5)) # Displays the coordinates in top right corner of each cell
+                
+                if (col, row) in world.explored: # Checks if col,row in explored set
+                    dot_radius = 5 # The green dot to mark explored cells
+                    dot_pos = (rect.right - dot_radius - 2, rect.top + dot_radius + 2) # Places the dot on top right corner of cell
+                    pygame.draw.circle(screen, (0, 200, 0), dot_pos, dot_radius)
+
+                # Draw red exclamation mark if cell is marked
+                if (col, row) in world.marked_cells: # Checks if col,row in marked_cells set
+                    mark_font = pygame.font.SysFont('Arial', 15, bold=True)
+                    mark_text = mark_font.render("!", True, RED)
+                    screen.blit(mark_text, (rect.right - 20, rect.top - 2)) # Position of exclamation mark, right next to dot
+
+                # Draw perceptions
+                if (col, row) in current_perceptions['stench']:
+                    img_x = grid_x + col * CELL_SIZE + (CELL_SIZE - stench_img.get_width()) // 2 # Centers pit image horizontally
+                    img_y = grid_y + row * CELL_SIZE + (CELL_SIZE - stench_img.get_height()) // 2 # Centers pit image vertically
+                    screen.blit(stench_img, (img_x, img_y)) # Places stench image in calculated positions
+                    
+                if (col, row) in current_perceptions['breeze']:
+                    img_x = grid_x + col * CELL_SIZE + (CELL_SIZE - breeze_img.get_width()) // 2 # Centers pit image horizontally
+                    img_y = grid_y + row * CELL_SIZE + (CELL_SIZE - breeze_img.get_height()) // 2 # Centers pit image vertically
+                    screen.blit(breeze_img, (img_x, img_y)) # Places stench image in calculated positions
+        
+        # Draw gold
+        if not world.has_gold and world.gold_pos in world.explored: # Checks if player hasn't collected the gold
+            gx, gy = world.gold_pos # Gets the position of the gold
+            gold_x = grid_x + gx * CELL_SIZE + (CELL_SIZE - gold_img.get_width()) // 2 # Centers pit image horizontally
+            gold_y = grid_y + gy * CELL_SIZE + (CELL_SIZE - gold_img.get_height()) // 2 # Centers pit image vertically
+            screen.blit(gold_img, (gold_x, gold_y)) # Places gold image in calculated positions
+        
+        # Draw Wumpus
+        if world.wumpus_alive and world.wumpus_pos in world.explored: # Checks if Wumpus is alive
+            wx, wy = world.wumpus_pos # Gets the position of Wumpus
+            wumpus_x = grid_x + wx * CELL_SIZE + (CELL_SIZE - wumpus_img.get_width()) // 2 # Centers pit image horizontally
+            wumpus_y = grid_y + wy * CELL_SIZE + (CELL_SIZE - wumpus_img.get_height()) // 2 # Centers pit image vertically
+            screen.blit(wumpus_img, (wumpus_x, wumpus_y)) # Places Wumpus image in calculated positions
+        
+        # Draw pits
+        for px, py in world.pits: # Iterates through each pit coordinate
+            if (px, py) in world.explored: 
+                pit_x = grid_x + px * CELL_SIZE + (CELL_SIZE - pit_img.get_width()) // 2 # Centers pit image horizontally
+                pit_y = grid_y + py * CELL_SIZE + (CELL_SIZE - pit_img.get_height()) // 2 # Centers pit image vertically
+                screen.blit(pit_img, (pit_x, pit_y)) # Places pit image in calculated positions
+        
+        # Draw agent
+        ax, ay = world.agent_pos # Gets the position of the agent
+        agent_x = grid_x + ax * CELL_SIZE + (CELL_SIZE - agent_img.get_width()) // 2 # Centers pit image horizontally
+        agent_y = grid_y + ay * CELL_SIZE + (CELL_SIZE - agent_img.get_height()) // 2 # Centers pit image vertically
+        screen.blit(agent_img, (agent_x, agent_y)) # Places agent image in calculated positions
+        
+        # Draw gold collection message
+        if world.gold_collected_message: # set to "Gold collected! Return to start!"
+            font = pygame.font.SysFont('Arial', 24, bold=True)
+            text = font.render(world.gold_collected_message, True, GOLD)
+            screen.blit(text, (WIDTH // 2 - text.get_width() // 2, 20)) # Places the text on center top of screen
+        
+        # Draw arrow status
+        arrow_font = pygame.font.SysFont('Arial', 20)
+        arrow_text = arrow_font.render(f"Arrows: {1 if world.has_arrow else 0}", True, BLACK) 
+        screen.blit(arrow_text, (WIDTH - 100, 20)) # Places arrow count on top right of screen
+        
+        # Draw scout mode status
+        scout_font = pygame.font.SysFont('Arial', 20)
+        if current_time - world.scout_start_time < 10: #Checks if scout mode has been active for less than 30 seconds
+            remaining = max(0, 10 - (current_time - world.scout_start_time)) # Time elapsed since activation
+            scout_text = scout_font.render(f"Scout: {int(remaining)}s", True, (200, 0, 0))
+        # elif world.scout_cooldown > 0: # If scout mode is inactive but still in cooldown
+        #     scout_text = scout_font.render(f"Scout: {int(world.scout_cooldown)}s", True, (200, 0, 0)) 
+        else: # Scout mode is ready (no active use, no cooldown)
+            scout_text = scout_font.render("Scout: Ready (R)", True, (0, 150, 0))
+        screen.blit(scout_text, (WIDTH - 100, 80))
+        
+        # Draw New Game button
+        button_rect = pygame.Rect(WIDTH // 2 - 75, HEIGHT - 50, 150, 30) # Size and centering the button
+        button_color = BUTTON_HOVER if button_rect.collidepoint(mouse_pos) else BUTTON_COLOR # Uses collidepoint() to detect if the mouse is over the button
+        
+        pygame.draw.rect(screen, button_color, button_rect, border_radius=25) # Draws new game button with rounded corners
+        pygame.draw.rect(screen, BLACK, button_rect, 3, border_radius=25) # Drawn a 3px black border around the button
+        
+        button_font = pygame.font.SysFont(None, 24) 
+        button_text = button_font.render("New Game", True, BLACK)
+        screen.blit(button_text, (button_rect.centerx - button_text.get_width() // 2, 
+                                button_rect.centery - button_text.get_height() // 2)) # Centers text inside button
+    else:
+        # Game Over or Victory Screen
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA) # Cover entire screen with black
+        overlay.fill((0, 0, 0, 255))
+        screen.blit(overlay, (0, 0)) # Covers from (0,0) to (WIDTH, HEIGHT)
+        
+        if "won" in world.game_over_message[0].lower(): # Check if won is there in game over message
+            end_img = victory_img # Displays victory image
+            if world.grid_size < MAX_GRID_SIZE:
+                world.show_continue = True # Continue button if not maximum grid size
+        else:
+            end_img = game_over_img # Displays game over image
+            world.show_continue = False
+            
+        img_x = (WIDTH - end_img.get_width()) // 2 # Horizontal centering
+        img_y = (HEIGHT - end_img.get_height()) // 2 - 50 # Vertical centering
+        screen.blit(end_img, (img_x, img_y))
+        
+        message_font = pygame.font.SysFont('timesnewroman', 24, bold=True) # Timesnewroman for game over message
+        y_offset = img_y + end_img.get_height() + 20 # Sets up message font and starting Y position below the image
+        
+        if "won" in world.game_over_message[0].lower(): # Check if game is won
+            optimal_text = f"Optimal moves: {world.optimal_moves}" 
+            optimal_render = message_font.render(optimal_text, True, WHITE) # Display optimal moves 
+            screen.blit(optimal_render, (WIDTH // 2 - optimal_render.get_width() // 2, y_offset))
+            y_offset += 30
+            
+            player_text = f"Your moves: {world.move_count}"
+            player_render = message_font.render(player_text, True, WHITE)
+            screen.blit(player_render, (WIDTH // 2 - player_render.get_width() // 2, y_offset)) # Centers text and starts from y offset
+            y_offset += 30 # So that next text has gap
+            
+            if world.optimal_moves > 0: # If optimal moves exist
+                efficiency = (world.optimal_moves / world.move_count) * 100 # Calculates efficiency
+                eff_text = f"Efficiency: {min(100, efficiency):.1f}%" # In case player beats A*
+                eff_render = message_font.render(eff_text, True, WHITE)
+                screen.blit(eff_render, (WIDTH // 2 - eff_render.get_width() // 2, y_offset))
+                y_offset += 30
+        
+        for line in world.game_over_message: # Loops through all the game over messages
+            message_text = message_font.render(line, True, WHITE)
+            screen.blit(message_text, (WIDTH // 2 - message_text.get_width() // 2, y_offset))
+            y_offset += 30
+        
+        if world.show_continue:
+            continue_rect = pygame.Rect(WIDTH // 2 - 75, HEIGHT - 100, 150, 30) # Draws continue button 150x30
+            continue_color = CONTINUE_HOVER if continue_rect.collidepoint(mouse_pos) else CONTINUE_COLOR # Uses collidepoint() to detect if the mouse is over the button
+            
+            pygame.draw.rect(screen, continue_color, continue_rect, border_radius=25) # Draws continue button with rounded corners
+            pygame.draw.rect(screen, BLACK, continue_rect, 3, border_radius=25) # Drawn a 3px black border around the button
+            
+            continue_font = pygame.font.SysFont(None, 24) 
+            continue_text = continue_font.render("Continue", True, BLACK)
+            screen.blit(continue_text, (continue_rect.centerx - continue_text.get_width() // 2, 
+                                      continue_rect.centery - continue_text.get_height() // 2)) # Centers the text inside button
+    
+    # Always show move counter and current level
+    move_font = pygame.font.SysFont('Arial', 24, bold=True)
+    move_text = move_font.render(f"Moves: {world.move_count}", True, RED) # Adds move counter to top right of screen
+    screen.blit(move_text, (20, 20))
+    level_text = move_font.render(f"Level: {world.grid_size}x{world.grid_size}", True, BLUE) # Adds level near move counter
+    screen.blit(level_text, (20 + move_text.get_width() + 10, 20))
+
+def main():
+    world = GameWorld() # Creates the game world with default 6x6 grid
+    
+    running = True
+    while running:
+        for event in pygame.event.get(): # Check all pending events
+            if event.type == pygame.QUIT: # Check if window close button is clicked
+                running = False # Exit game loop
+            
+            elif event.type == pygame.MOUSEBUTTONDOWN: # Any mouse click    
+                if world.game_over: # Only process clicks when game isn't active
+                    if world.show_continue: # True after winning non-max level
+                        continue_rect = pygame.Rect(WIDTH // 2 - 75, HEIGHT - 100, 150, 30) # Continue button dimensions
+                        if continue_rect.collidepoint(event.pos): # Check if Continue button is clicked
+                            new_size = world.grid_size + 1 # Increase the grid size by 1
+                            world.reset_world(new_size=new_size) # Rebuild the world
+                            print(f"Continuing to {new_size}x{new_size} grid!")
+                            continue
+                    
+                    world.reset_world() # Normal reset if not continuing
+                else: # Game is active
+                    # Calculate grid's screen position (centered)
+                    grid_x = (WIDTH - world.grid_size * CELL_SIZE) // 2
+                    grid_y = (HEIGHT - world.grid_size * CELL_SIZE - 40) // 2
+                    # Check if click is within grid bounds
+                    if (grid_x <= event.pos[0] < grid_x + world.grid_size * CELL_SIZE and
+                        grid_y <= event.pos[1] < grid_y + world.grid_size * CELL_SIZE):
+                        # Convert mouse position to grid coordinates
+                        col = (event.pos[0] - grid_x) // CELL_SIZE # X index
+                        row = (event.pos[1] - grid_y) // CELL_SIZE # Y index
+                        # Left-click toggles danger markings
+                        if event.button == 1: # Left mouse button
+                            if (col, row) in world.marked_cells: 
+                                world.marked_cells.remove((col, row)) # Unmark cell
+                            else:
+                                world.marked_cells.add((col, row)) # Mark cell
+                    
+                    button_rect = pygame.Rect(WIDTH // 2 - 75, HEIGHT - 50, 150, 30) # New Game button below grid
+                    if button_rect.collidepoint(event.pos):
+                        world.reset_world() # Full game reset if New Game button is clicked
+                        print("New game started!")
+            
+            elif event.type == pygame.KEYDOWN and not world.game_over: # Checks if key is being pressed when the game is active
+                x, y = world.agent_pos # Gets agent position
+                moved = False 
+                shot = False
+                
+                if event.key == pygame.K_UP and y > 0: # If UP arrow is pressed and if within bounds
+                    world.agent_pos[1] -= 1 # y value of agent changes, indicating moving UP
+                    moved = True
+                elif event.key == pygame.K_DOWN and y < world.grid_size-1: # If DOWN arrow is pressed and if within bounds
+                    world.agent_pos[1] += 1 # y value of agent changes, indicating moving DOWN
+                    moved = True
+                elif event.key == pygame.K_LEFT and x > 0: # If LEFT arrow is pressed and if within bounds
+                    world.agent_pos[0] -= 1 # x value of agent changes, indicating moving LEFT
+                    moved = True
+                elif event.key == pygame.K_RIGHT and x < world.grid_size-1: # If RIGHT arrow is pressed and if within bounds
+                    world.agent_pos[0] += 1 # x value of agent changes, indicating moving RIGHT
+                    moved = True
+                elif event.key == pygame.K_SPACE and world.has_arrow: # If SPACE key is pressed and if has_arrow is True
+                    world.has_arrow = False
+                    wx, wy = world.wumpus_pos # Gets Wumpus position
+                    ax, ay = world.agent_pos # Gets agent position
+                    if (abs(ax - wx) == 1 and ay == wy) or (abs(ay - wy) == 1 and ax == wx): # Check if adjacent horizontally or vertically
+                        world.wumpus_alive = False # Kill Wumpus
+                        print("You killed the Wumpus!") 
+                        world.update_perceptions() # Remove stench
+                    else:
+                        print("Arrow missed!")
+                    shot = True
+                elif event.key == pygame.K_r: # Checks if R key is pressed for scout
+                    world.activate_scout_mode() # Activates Scout Mode and reveals adjacent cells temporarily
+                
+                if moved or shot: # Checks if either moved or shot is True
+                    if moved:
+                        world.move_count += 1 # Increase move count
+                        world.player_move_count += 1 # This move count specifically counts moves to trigger the Wumpus' movement
+                        current_pos = (world.agent_pos[0], world.agent_pos[1]) # Get agent's current location
+                        world.explored.add(current_pos) # Add it to explored
+                        print(f"Moved to: ({current_pos[0]+1},{world.grid_size-current_pos[1]})")
+                        
+                        if world.player_move_count % 3 == 0: # Every 3 moves the player makes
+                            world.move_wumpus() # Wumpus moves
+                    
+                    current_pos = (world.agent_pos[0], world.agent_pos[1]) # Get current position again
+                    
+                    if world.wumpus_alive and current_pos == world.wumpus_pos: # Checks if player and Wumpus in same cell
+                        world.game_over = True # Game is over
+                        world.game_over_message = ["You were eaten by the Wumpus!", 
+                                                   "Click anywhere to start a new game"] # The following message is printed
+                    elif current_pos in world.pits: # Checks if player has fallen inside a pit
+                        world.game_over = True
+                        world.game_over_message = ["You fell into a pit!",
+                                                   "Click anywhere to start a new game"] # The following message is printed
+                    elif current_pos == world.gold_pos and not world.has_gold: # Checks if player landed on gold
+                        world.has_gold = True
+                        world.gold_collected_message = "Gold collected! Return to start!" # Display this message
+                        print(world.gold_collected_message)
+                    elif current_pos == (0, world.grid_size-1) and world.has_gold: # Checks if player returned to start with gold
+                        world.game_over = True # Game is over
+                        world.game_over_message = [
+                            "You won! Gold safely returned!", 
+                            "Click anywhere to start a new game"] # The following message is printed
+        
+        draw_game(world) # Handles all graphics (grid, agents, UI)
+        pygame.display.flip() # Update display
+        clock.tick(30) # Maintain 30 FPS
+    
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()
