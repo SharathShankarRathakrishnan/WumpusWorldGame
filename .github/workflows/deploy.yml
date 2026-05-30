@@ -20,8 +20,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install pygbag
-        run: pip install pygbag
+      - name: Install pygbag and ffmpeg
+        run: |
+          pip install pygbag
+          sudo apt-get install -y ffmpeg
+
+      - name: Convert all WAV files to OGG for web
+        run: |
+          for f in sounds/*.wav; do
+            ffmpeg -i "$f" "${f%.wav}.ogg" -y
+          done
+          rm sounds/*.wav
+
+      - name: Patch wumpus.py to load OGG instead of WAV for web build
+        run: sed -i "s/\.wav'/\.ogg'/g" wumpus.py
 
       - name: Build with pygbag
         run: python -m pygbag --build wumpus.py; code=$?; if [ $code -ne 0 ] && [ $code -ne 3 ]; then exit $code; fi
