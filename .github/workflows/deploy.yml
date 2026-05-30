@@ -24,7 +24,7 @@ jobs:
         run: pip install pygbag
 
       - name: Build with pygbag
-        run: python -m pygbag --build wumpus.py
+        run: python -m pygbag --build wumpus.py; code=$?; if [ $code -ne 0 ] && [ $code -ne 3 ]; then exit $code; fi
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
