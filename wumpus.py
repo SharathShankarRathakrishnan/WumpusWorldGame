@@ -37,12 +37,12 @@ def change_speed(sound, speed):
         return sound
 
 # Load sound effects
-snd_footstep         = load_sound('footstep.wav')
-snd_gold_collected   = load_sound('gold_collected.wav')
+snd_footstep         = load_sound('footstep.ogg')
+snd_gold_collected   = load_sound('gold_collected.ogg')
 snd_arrow_kill       = load_sound('arrow_sound+monster_dying.ogg')
 snd_arrow_miss       = load_sound('arrow_sound.ogg')
-snd_monster_footstep = load_sound('monster_footsteps.wav')
-snd_monster_scream   = load_sound('monster_scream.wav')
+snd_monster_footstep = load_sound('monster_footsteps.ogg')
+snd_monster_scream   = load_sound('monster_scream.ogg')
 snd_falling_scream   = load_sound('falling_scream.ogg')
 
 if snd_gold_collected:
