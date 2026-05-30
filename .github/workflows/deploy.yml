@@ -23,6 +23,17 @@ jobs:
       - name: Install pygbag
         run: pip install pygbag
 
+      - name: Convert MP3 to OGG for web compatibility
+        run: |
+          ffmpeg -i sounds/arrow_sound+monster_dying.mp3 sounds/arrow_sound+monster_dying.ogg -y
+          ffmpeg -i sounds/arrow_sound.mp3 sounds/arrow_sound.ogg -y
+          rm sounds/arrow_sound+monster_dying.mp3 sounds/arrow_sound.mp3
+
+      - name: Patch wumpus.py to load OGG instead of MP3 for web build
+        run: |
+          sed -i "s/arrow_sound+monster_dying\.mp3/arrow_sound+monster_dying.ogg/g" wumpus.py
+          sed -i "s/arrow_sound\.mp3/arrow_sound.ogg/g" wumpus.py
+
       - name: Build with pygbag
         run: python -m pygbag --build wumpus.py; code=$?; if [ $code -ne 0 ] && [ $code -ne 3 ]; then exit $code; fi
 
