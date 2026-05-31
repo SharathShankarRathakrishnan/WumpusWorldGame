@@ -21,10 +21,17 @@ jobs:
           python-version: '3.11'
 
       - name: Install pygbag
-        run: pip install pygbag==0.8.6
+        run: pip install pygbag==0.9.2
 
       - name: Build with pygbag
         run: python -m pygbag --build --ume_block 0 wumpus.py; code=$?; if [ $code -ne 0 ] && [ $code -ne 3 ]; then exit $code; fi
+
+      - name: Show build output
+        run: |
+          echo "=== build/web contents ==="
+          ls -lah build/web/ 2>/dev/null || echo "build/web NOT FOUND"
+          echo "=== index.html head ==="
+          head -30 build/web/index.html 2>/dev/null || echo "no index.html"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
