@@ -1,0 +1,10 @@
+[build]
+  command = "pip install pygbag==0.9.3 && python -m pygbag --build --ume_block 0 wumpus.py; true"
+  publish = "build/web"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+    Cross-Origin-Resource-Policy = "cross-origin"
