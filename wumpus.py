@@ -671,7 +671,7 @@ def get_cell_size(world, screen_width, screen_height):
 
 def draw_game(world):
     """Draw the entire game state"""
-    screen.fill(OFF_WHITE) # Off-white background to the game screen
+    screen.fill((255, 0, 0)) # DEBUG: bright red to test canvas visibility
     mouse_pos = pygame.mouse.get_pos() # Tracks mouse position for mouse hover effects
     
     # Get current screen dimensions for proper centering
