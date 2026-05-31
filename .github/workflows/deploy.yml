@@ -49,6 +49,52 @@ jobs:
           print("OK: assets/main.py present in", apk)
           PY
 
+      - name: Self-host pygbag runtime + pygame engine (eliminate cross-origin CDN)
+        # The end user's browser was failing to download the 2.4MB pygame engine
+        # wheel cross-origin from pygame-web.github.io. We mirror the entire pygbag
+        # 0.8 runtime AND that wheel into the deployed site so every fetch is
+        # same-origin (served by the same GitHub Pages host as the game itself).
+        run: |
+          cd webgame/build/web
+          BASE="https://pygame-web.github.io/archives"
+          CDN="$BASE/0.8"
+          REPO="$BASE/repo"
+          # Path the site is served from on GitHub Pages (root-absolute, unambiguous).
+          SITE="/WumpusWorldGame"
+
+          mkdir -p archives/0.8/python311 archives/0.8/vt archives/repo/pkg
+
+          echo "--- mirroring runtime (archives/0.8) ---"
+          for f in pythons.js pythonrc.py browserfs.min.js empty.html favicon.png \
+                   vt.js vtx.js vt/xterm.js vt/xterm-addon-image.js \
+                   python311/main.js python311/main.wasm python311/main.data; do
+            curl -fsSL "$CDN/$f" -o "archives/0.8/$f"
+            echo "  got 0.8/$f ($(wc -c < "archives/0.8/$f") bytes)"
+          done
+
+          echo "--- mirroring package index + pygame engine (archives/repo) ---"
+          curl -fsSL "$REPO/repodata.json" -o archives/repo/repodata.json
+          curl -fsSL "$REPO/index-bi.json" -o archives/repo/index-bi.json
+          curl -fsSL "$REPO/pkg/pygame_static-1.0-cp311-cp311-wasm32_bi_emscripten.whl" \
+               -o archives/repo/pkg/pygame_static-1.0-cp311-cp311-wasm32_bi_emscripten.whl
+          echo "  wheel $(wc -c < archives/repo/pkg/pygame_static-1.0-cp311-cp311-wasm32_bi_emscripten.whl) bytes"
+
+          echo "--- repointing config to same-origin ($SITE) ---"
+          # 1) pythonrc.py hardcodes the package index used to locate the wheel.
+          sed -i "s#https://pygame-web.github.io/archives/repo/#$SITE/archives/repo/#g" \
+                 archives/0.8/pythonrc.py
+          # 2) index-bi.json carries a -CDN- base used to build the wheel URL.
+          sed -i "s#https://pygame-web.github.io/archives/repo/#$SITE/archives/repo/#g" \
+                 archives/repo/index-bi.json
+          # 3) The generated index.html loads the whole runtime from the CDN; repoint it.
+          sed -i "s#https://pygame-web.github.io/archives/0.8#$SITE/archives/0.8#g" index.html
+
+          echo "--- verifying no cross-origin pygame-web refs remain in index.html/pythonrc/index-bi ---"
+          ! grep -rn "pygame-web.github.io" index.html archives/0.8/pythonrc.py archives/repo/index-bi.json \
+            || (echo "ERROR: cross-origin refs still present" && exit 1)
+          echo "OK: runtime fully self-hosted"
+          ls -R archives | head -40
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
