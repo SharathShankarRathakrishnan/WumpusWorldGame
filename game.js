@@ -140,14 +140,28 @@ async function loadAllAssets() {
   }
 }
 
+// Track currently-playing audio so a new game can silence lingering
+// game-over sounds (the monster scream / falling scream are long).
+let activeAudios = [];
 function play(name) {
   const s = sounds[name];
   if (!s) return;
   try {
     const a = new Audio(s.url);
     a.playbackRate = s.rate;
+    activeAudios.push(a);
+    const cleanup = () => { activeAudios = activeAudios.filter((x) => x !== a); };
+    a.addEventListener("ended", cleanup);
+    a.addEventListener("error", cleanup);
     a.play().catch(() => {});
   } catch (e) {}
+}
+
+function stopAllSounds() {
+  for (const a of activeAudios) {
+    try { a.pause(); a.currentTime = 0; } catch (e) {}
+  }
+  activeAudios = [];
 }
 
 /* ---------------------------------------------------------------- fonts */
@@ -251,6 +265,7 @@ class GameWorld {
   }
 
   reset_world(new_size = null) {
+    stopAllSounds();  // silence any lingering game-over sounds when a new game starts
     this.grid_size = (new_size == null) ? BASE_GRID_SIZE : new_size;
     this.agent_pos = [0, this.grid_size - 1];
     this.move_count = 0;
@@ -541,7 +556,10 @@ function draw_game(world) {
   const shakeElapsed = animMs - world.shake_start_time;
   if (shakeElapsed > 0 && shakeElapsed < world.shake_duration) {
     const progress = shakeElapsed / world.shake_duration;
-    const amp = world.shake_amplitude * (1 - progress);
+    // Scale the shake with cell size so it stays clearly visible even when the
+    // grid is scaled up to fill a large fullscreen window.
+    const baseAmp = Math.max(world.shake_amplitude, get_cell_size(world) * 0.16);
+    const amp = baseAmp * (1 - progress);
     shakeX = Math.round(amp * Math.sin(shakeElapsed * 0.18));
     shakeY = Math.round(amp * Math.cos(shakeElapsed * 0.23));
   }
