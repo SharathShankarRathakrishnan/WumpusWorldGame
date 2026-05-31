@@ -624,8 +624,8 @@ def process_game_action(world, action):
 def get_mobile_rects(screen_width, screen_height):
     """Return dict of on-screen button Rects, anchored to bottom corners."""
     btn  = 62   # D-pad button size
-    gap  = 8    # gap between D-pad buttons
-    cx   = 115  # D-pad horizontal centre from left edge
+    gap  = 30   # gap between D-pad buttons (spread out so they aren't cramped)
+    cx   = 120  # D-pad horizontal centre from left edge
     cy   = screen_height - 170  # D-pad vertical centre
 
     aw, ah = 92, 58   # action button width / height

@@ -524,7 +524,7 @@ function process_game_action(world, action) {
 
 /* ---------------------------------------------------------------- mobile controls */
 function get_mobile_rects() {
-  const btn = 62, gap = 8, cx = 115, cy = VH - 170;
+  const btn = 62, gap = 30, cx = 120, cy = VH - 170;
   const aw = 92, ah = 58, agap = 12, ay = VH - 130;
   return {
     up:    { x: cx - btn / 2,        y: cy - btn - gap / 2, w: btn, h: btn },
