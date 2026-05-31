@@ -6,6 +6,8 @@ import random # For generating Wumpus, pits and gold.
 import heapq # Provides priority queue functions for A* pathfinding algorithm
 import time # For cooldown timer in scout mode
 import asyncio # Required by pygbag for web builds
+import sys
+IS_WEB = sys.platform in ('emscripten', 'wasm32')  # True when running in browser via pygbag
 
 # Base directory: folder where wumpus.py lives, so images are always found
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +22,10 @@ def load_sound(filename):
         return None
 
 def change_speed(sound, speed):
-    """Return a new Sound played back at the given speed multiplier (requires numpy)."""
+    """Return a new Sound played back at the given speed multiplier (requires numpy).
+    Skipped on web builds — numpy import hangs the browser."""
+    if IS_WEB:
+        return sound  # skip on web: importing numpy blocks the browser runtime
     try:
         import numpy as np
         samples = pygame.sndarray.array(sound)
@@ -671,7 +676,7 @@ def get_cell_size(world, screen_width, screen_height):
 
 def draw_game(world):
     """Draw the entire game state"""
-    screen.fill((255, 0, 0)) # DEBUG: bright red to test canvas visibility
+    screen.fill(OFF_WHITE) # Off-white background to the game screen
     mouse_pos = pygame.mouse.get_pos() # Tracks mouse position for mouse hover effects
     
     # Get current screen dimensions for proper centering
@@ -1172,68 +1177,35 @@ async def main():
     global snd_footstep, snd_gold_collected, snd_arrow_kill, snd_arrow_miss
     global snd_monster_footstep, snd_monster_scream, snd_falling_scream
 
-    print("=== main() started ===")
-
-    # ── Step 1: pygame.init ──
-    try:
-        pygame.init()
-        print("pygame.init() OK")
-    except BaseException as e:
-        print(f"pygame.init() CRASHED: {e}")
-        return
-
-    # ── Step 2: mixer ──
+    # ── Initialise pygame ──
+    pygame.init()
     try:
         pygame.mixer.init()
-        print("mixer.init() OK")
     except BaseException as e:
         print(f"mixer.init() failed (audio disabled): {e}")
 
-    # ── Step 3: display ──
-    try:
-        screen = pygame.display.set_mode((800, 600))
-        pygame.display.set_caption("Wumpus World")
-        clock = pygame.time.Clock()
-        print("display OK")
-    except BaseException as e:
-        print(f"display CRASHED: {e}")
-        return
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
+    clock = pygame.time.Clock()
 
-    # ── Step 4: show something IMMEDIATELY ──
-    screen.fill((255, 255, 0))
-    pygame.display.flip()
-    await asyncio.sleep(0)
-    print("yellow frame shown")
-
-    # ── Step 5: fonts ──
+    # Load fonts — three levels of fallback so we always get something
     try:
         _font_path = os.path.join(BASE_DIR, 'VT323-Regular.ttf')
         VT323_FONT       = pygame.font.Font(_font_path, 24)
         VT323_FONT_SMALL = pygame.font.Font(_font_path, 20)
         VT323_FONT_LARGE = pygame.font.Font(_font_path, 32)
         VT323_FONT_TITLE = pygame.font.Font(_font_path, 48)
-        print("VT323 font OK")
     except BaseException:
         try:
             VT323_FONT       = pygame.font.SysFont('Courier New', 24, bold=True)
             VT323_FONT_SMALL = pygame.font.SysFont('Courier New', 20, bold=True)
             VT323_FONT_LARGE = pygame.font.SysFont('Courier New', 32, bold=True)
             VT323_FONT_TITLE = pygame.font.SysFont('Courier New', 48, bold=True)
-            print("SysFont fallback OK")
         except BaseException:
             VT323_FONT       = pygame.font.Font(None, 24)
             VT323_FONT_SMALL = pygame.font.Font(None, 20)
             VT323_FONT_LARGE = pygame.font.Font(None, 32)
             VT323_FONT_TITLE = pygame.font.Font(None, 48)
-            print("default font fallback OK")
-
-    # Show a bright loading screen for 2 seconds — confirms Python is running
-    _dbg = pygame.font.Font(None, 64)
-    screen.fill((255, 255, 0))   # bright yellow — impossible to miss
-    screen.blit(_dbg.render("LOADING...", True, (0, 0, 0)), (400 - 130, 300 - 32))
-    pygame.display.flip()
-    await asyncio.sleep(2)        # hold for 2 seconds so it's visible
-    print("loading screen done")
 
     try:
         # Load images (requires display to be initialised first)
