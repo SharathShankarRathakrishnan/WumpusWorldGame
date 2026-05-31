@@ -1276,97 +1276,80 @@ async def main():
 
     running = True
     while running:
-        try:
-          for event in pygame.event.get(): # Check all pending events
-            if event.type == pygame.QUIT: # Check if window close button is clicked
-                running = False # Exit game loop
-            
-            elif event.type == pygame.MOUSEBUTTONDOWN: # Any mouse click
-                # Get current screen size for accurate click detection
-                screen_width, screen_height = screen.get_size() # Get the actual window size for button hit detection
-                
-                if world.show_rules:  # Check if rules screen is currently being displayed
-                    # Clicking anywhere dismisses the rules screen
-                    world.show_rules = False  # Hides the rules screen so game can begin
-                    continue  # Skips processing other click events while rules were shown
-                
-                if world.game_over: # Only process clicks when game isn't active
-                    if world.show_continue: # True after winning non-max level
-                        continue_rect = pygame.Rect(screen_width // 2 - 100, screen_height - 110, 200, 50) # Continue button dimensions based on current window size
-                        if continue_rect.collidepoint(event.pos): # Check if Continue button is clicked
-                            new_size = world.grid_size + 1 # Increase the grid size by 1
-                            world.reset_world(new_size=new_size) # Rebuild the world
-                            print(f"Continuing to {new_size}x{new_size} grid!")
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                screen_width, screen_height = screen.get_size()
+
+                if world.show_rules:
+                    world.show_rules = False
+                    continue
+
+                if world.game_over:
+                    if world.show_continue:
+                        continue_rect = pygame.Rect(screen_width // 2 - 100, screen_height - 110, 200, 50)
+                        if continue_rect.collidepoint(event.pos):
+                            new_size = world.grid_size + 1
+                            world.reset_world(new_size=new_size)
                             continue
-                    
-                    world.reset_world() # Normal reset if not continuing
-                else: # Game is active
-                    # Check if Rules button was clicked (positioned at screen_width - 200, 20 with size 80x25)
-                    rules_button_rect = pygame.Rect(screen_width - 200, 20, 80, 25)  # Defines the Rules button rectangle based on current window width
-                    if rules_button_rect.collidepoint(event.pos):  # Checks if click was on Rules button
-                        world.show_rules = True  # Shows the rules screen overlay
-                        continue  # Skips other click processing since we opened rules
-                    
-                    # Calculate grid's screen position (must match draw_game exactly)
-                    cs = getattr(world, 'cell_size', CELL_SIZE)  # use last computed cell size
+                    world.reset_world()
+                else:
+                    rules_button_rect = pygame.Rect(screen_width - 200, 20, 80, 25)
+                    if rules_button_rect.collidepoint(event.pos):
+                        world.show_rules = True
+                        continue
+
+                    cs = getattr(world, 'cell_size', CELL_SIZE)
                     gw = world.grid_size * cs
                     gh = world.grid_size * cs
                     if world.show_mobile_controls:
                         grid_x = (screen_width - gw) // 2
                         grid_y = 90 + ((screen_height - 90 - 250 - gh) // 2)
                     else:
-                        grid_x = (screen_width  - gw) // 2
+                        grid_x = (screen_width - gw) // 2
                         grid_y = (screen_height - gh - 40) // 2
-                    # Check if click is within grid bounds
+
                     if (grid_x <= event.pos[0] < grid_x + gw and
-                        grid_y <= event.pos[1] < grid_y + gh):
-                        # Convert mouse position to grid coordinates
+                            grid_y <= event.pos[1] < grid_y + gh):
                         col = (event.pos[0] - grid_x) // cs
                         row = (event.pos[1] - grid_y) // cs
-                        # Left-click toggles danger markings
-                        if event.button == 1: # Left mouse button
-                            if (col, row) in world.marked_cells: 
-                                world.marked_cells.remove((col, row)) # Unmark cell
-                                del world.marked_cell_times[(col, row)]  # Remove animation time
+                        if event.button == 1:
+                            if (col, row) in world.marked_cells:
+                                world.marked_cells.remove((col, row))
+                                del world.marked_cell_times[(col, row)]
                             else:
-                                world.marked_cells.add((col, row)) # Mark cell
-                                world.marked_cell_times[(col, row)] = get_animation_time()  # Track animation start time
+                                world.marked_cells.add((col, row))
+                                world.marked_cell_times[(col, row)] = get_animation_time()
 
-                    button_rect = pygame.Rect(screen_width // 2 - 75, screen_height - 50, 150, 30) # New Game button below grid based on current window size
+                    button_rect = pygame.Rect(screen_width // 2 - 75, screen_height - 50, 150, 30)
                     if button_rect.collidepoint(event.pos):
-                        world.new_game_button_pressed = True  # Trigger press animation
+                        world.new_game_button_pressed = True
 
-                    # Mobile touch controls (only active on touch devices)
                     if world.show_mobile_controls:
                         for action, rect in get_mobile_rects(screen_width, screen_height).items():
                             if rect.collidepoint(event.pos):
                                 process_game_action(world, action)
                                 break
 
-            elif event.type == pygame.MOUSEBUTTONUP: # Mouse button released
-                if world.new_game_button_pressed: # If New Game button was pressed
-                    world.new_game_button_pressed = False  # Release button animation
-                    # Only trigger reset if mouse is still over the button
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if world.new_game_button_pressed:
+                    world.new_game_button_pressed = False
                     screen_width, screen_height = screen.get_size()
                     button_rect = pygame.Rect(screen_width // 2 - 75, screen_height - 50, 150, 30)
-                    mouse_pos = pygame.mouse.get_pos()
-                    if button_rect.collidepoint(mouse_pos):
-                        world.reset_world() # Full game reset when button released over it
-                        print("New game started!")
-            
-            elif event.type == pygame.FINGERDOWN:  # Touch event — must be a touch device
-                world.show_mobile_controls = True   # Reveal on-screen controls permanently
+                    if button_rect.collidepoint(pygame.mouse.get_pos()):
+                        world.reset_world()
 
-            elif event.type == pygame.KEYDOWN: # Checks if any key is being pressed
-                if world.show_rules:  # Check if rules screen is currently displayed
-                    # Pressing any key dismisses the rules screen
-                    world.show_rules = False  # Hides the rules screen
-                    continue  # Skips processing other key events while rules were shown
-                
-                if world.game_over:  # Skip key processing if game is over
-                    continue  # Don't process movement keys when game is over
-                
-                # Game is active — map keys to actions and delegate to process_game_action
+            elif event.type == pygame.FINGERDOWN:
+                world.show_mobile_controls = True
+
+            elif event.type == pygame.KEYDOWN:
+                if world.show_rules:
+                    world.show_rules = False
+                    continue
+                if world.game_over:
+                    continue
                 key_action = {
                     pygame.K_UP:    'up',
                     pygame.K_DOWN:  'down',
@@ -1377,26 +1360,25 @@ async def main():
                 }
                 if event.key in key_action:
                     process_game_action(world, key_action[event.key])
-        
-        draw_game(world) # Handles all graphics (grid, agents, UI)
-        
-        # Draw rules screen overlay if show_rules flag is True (shows on startup and when Rules button clicked)
-        if world.show_rules:  # Checks if rules screen should be displayed
-            draw_rules_screen()  # Draws the rules overlay on top of the game
-        
-          pygame.display.flip() # Update display
-          clock.tick(30) # Maintain 30 FPS
+
+        try:
+            draw_game(world)
+            if world.show_rules:
+                draw_rules_screen()
         except Exception as _re:
-            import traceback; _tb3 = traceback.format_exc()
-            print("RUNTIME ERROR:", _tb3)
-            screen.fill((0,0,0))
+            import traceback
+            _tb3 = traceback.format_exc()
+            print("DRAW ERROR:", _tb3)
+            screen.fill((0, 0, 0))
             _ef3 = pygame.font.Font(None, 22)
             _y3 = 10
-            for _line3 in (["RUNTIME ERROR:"] + _tb3.splitlines())[:30]:
-                screen.blit(_ef3.render(_line3[:90], True, (255, 80, 80)), (10, _y3)); _y3 += 22
-            pygame.display.flip()
-            running = False
-        await asyncio.sleep(0) # Yield control to browser — required by pygbag
+            for _line3 in (["DRAW ERROR:"] + _tb3.splitlines())[:30]:
+                screen.blit(_ef3.render(_line3[:90], True, (255, 80, 80)), (10, _y3))
+                _y3 += 22
+
+        pygame.display.flip()
+        clock.tick(30)
+        await asyncio.sleep(0)
 
     pygame.quit()
 
