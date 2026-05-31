@@ -116,7 +116,6 @@ const SOUND_FILES = {
   monster_scream:  ["sounds/monster_scream.ogg", 2.5],
   falling_scream:  ["sounds/falling_scream.ogg", 1.25],
 };
-const sounds = {};
 
 function loadImage(src) {
   return new Promise((resolve) => {
@@ -127,30 +126,82 @@ function loadImage(src) {
   });
 }
 
+/* ---------------------------------------------------------------- audio
+   We decode every sound ONCE into an AudioBuffer with the Web Audio API and
+   play it from memory. Creating a fresh `new Audio(url)` per play (the old
+   approach) meant the browser had to re-fetch/decode the file each time, so a
+   sound triggered before that finished — or while several loads were in flight —
+   would silently fail. Buffered playback is instant and reliable, supports
+   overlapping plays, and honours the per-sound playbackRate. */
+let audioCtx = null;
+const soundBuffers = {};   // name -> { buffer, rate }
+const soundFallback = {};  // name -> { url, rate }  (used if decode unavailable)
+let activeSources = [];    // live nodes/elements so a new game can stop them
+
+function getAudioCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) audioCtx = new AC();
+  }
+  return audioCtx;
+}
+
 async function loadAllAssets() {
   const imgJobs = Object.entries(IMAGE_FILES).map(async ([name, file]) => {
     images[name] = await loadImage(file);
   });
-  for (const [name, [file, rate]] of Object.entries(SOUND_FILES)) {
-    sounds[name] = { url: file, rate };
-  }
-  await Promise.all(imgJobs);
+
+  const ctx = getAudioCtx();
+  const sndJobs = Object.entries(SOUND_FILES).map(async ([name, [file, rate]]) => {
+    soundFallback[name] = { url: file, rate };  // always have an HTMLAudio fallback
+    if (!ctx) return;
+    try {
+      const resp = await fetch(file);
+      const data = await resp.arrayBuffer();
+      const buffer = await ctx.decodeAudioData(data);
+      soundBuffers[name] = { buffer, rate };
+    } catch (e) {
+      // Decode failed (e.g. Safari + ogg) — leave the HTMLAudio fallback in place.
+    }
+  });
+
+  await Promise.all([...imgJobs, ...sndJobs]);
   if (document.fonts && document.fonts.load) {
     try { await document.fonts.load("24px VT323"); } catch (e) {}
   }
 }
 
-// Track currently-playing audio so a new game can silence lingering
-// game-over sounds (the monster scream / falling scream are long).
-let activeAudios = [];
+// Browsers start the AudioContext suspended until a user gesture. play() is
+// always reached from inside a click/key/touch handler, so resuming here works.
+function unlockAudio() {
+  const ctx = getAudioCtx();
+  if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
+}
+
 function play(name) {
-  const s = sounds[name];
+  unlockAudio();
+  const ctx = getAudioCtx();
+  const buf = soundBuffers[name];
+  if (ctx && buf) {
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buf.buffer;
+      src.playbackRate.value = buf.rate;
+      src.connect(ctx.destination);
+      activeSources.push(src);
+      src.onended = () => { activeSources = activeSources.filter((x) => x !== src); };
+      src.start(0);
+      return;
+    } catch (e) { /* fall through to HTMLAudio */ }
+  }
+  // Fallback path (Web Audio unavailable or decode failed)
+  const s = soundFallback[name];
   if (!s) return;
   try {
     const a = new Audio(s.url);
     a.playbackRate = s.rate;
-    activeAudios.push(a);
-    const cleanup = () => { activeAudios = activeAudios.filter((x) => x !== a); };
+    activeSources.push(a);
+    const cleanup = () => { activeSources = activeSources.filter((x) => x !== a); };
     a.addEventListener("ended", cleanup);
     a.addEventListener("error", cleanup);
     a.play().catch(() => {});
@@ -158,10 +209,13 @@ function play(name) {
 }
 
 function stopAllSounds() {
-  for (const a of activeAudios) {
-    try { a.pause(); a.currentTime = 0; } catch (e) {}
+  for (const node of activeSources) {
+    try {
+      if (typeof node.stop === "function") node.stop();   // AudioBufferSourceNode
+      else { node.pause(); node.currentTime = 0; }        // HTMLAudioElement
+    } catch (e) {}
   }
-  activeAudios = [];
+  activeSources = [];
 }
 
 /* ---------------------------------------------------------------- fonts */
