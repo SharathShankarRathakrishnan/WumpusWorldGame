@@ -1011,14 +1011,12 @@ def draw_game(world):
             screen.blit(continue_text, (continue_rect.centerx - continue_text.get_width() // 2,
                                         continue_rect.centery - continue_text.get_height() // 2))
     
-    # Always show move counter, level, and pit count
+    # Always show move counter and level (pit count is shown top-right inside the game view)
     move_font = VT323_FONT
     move_text = move_font.render(f"Moves: {world.move_count}", True, RED) # Adds move counter to top right of screen
     screen.blit(move_text, (20, 20))
     level_text = move_font.render(f"Level: {world.grid_size}x{world.grid_size}", True, BLUE) # Adds level near move counter
     screen.blit(level_text, (20 + move_text.get_width() + 10, 20))
-    pit_count_text = move_font.render(f"Pits: {len(world.pits)}", True, BLUE) # Display pit count below moves
-    screen.blit(pit_count_text, (20, 20 + move_text.get_height() + 5))
 
 def draw_scroll_shape(surface, x, y, width, height, scroll_depth=25):
     """Draw a scroll shape with curved top and bottom edges"""

@@ -7,10 +7,7 @@
 /* ---------------------------------------------------------------- constants */
 const BASE_GRID_SIZE = 6;
 const MAX_GRID_SIZE  = 10;
-const CELL_SIZE      = 80;
-const MARGIN         = 45;
-const WIDTH  = MAX_GRID_SIZE * CELL_SIZE + 2 * MARGIN;        // 890
-const HEIGHT = MAX_GRID_SIZE * CELL_SIZE + 2 * MARGIN + 80;   // 970
+const CELL_SIZE      = 80;   // reference cell size (matches the desktop .py version)
 
 const OFF_WHITE  = "rgb(245,245,240)";
 const BLACK      = "rgb(0,0,0)";
@@ -21,7 +18,8 @@ const DARK_GOLD  = "rgb(184,134,11)";
 const PARCHMENT       = [235, 222, 195];
 const PARCHMENT_BORDER = "rgb(180,160,130)";
 
-// Per-image target sizes mirroring IMAGE_SIZES in the original.
+// Per-image target sizes at the reference cell size, mirroring IMAGE_SIZES in
+// the original. Entities scale proportionally with the live cell size.
 const IMAGE_SIZES = {
   agent:  [30, 45],
   gold:   [60, 40],
@@ -69,10 +67,38 @@ const nowMs = () => performance.now();
 const nowS  = () => performance.now() / 1000;
 const DIRS  = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 
-/* ---------------------------------------------------------------- assets */
+/* ---------------------------------------------------------------- canvas / viewport */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
+let VW = window.innerWidth;   // logical viewport width  (CSS px)
+let VH = window.innerHeight;  // logical viewport height (CSS px)
+let DPR = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  DPR = window.devicePixelRatio || 1;
+  VW = window.innerWidth;
+  VH = window.innerHeight;
+  canvas.width  = Math.round(VW * DPR);
+  canvas.height = Math.round(VH * DPR);
+  canvas.style.width  = VW + "px";
+  canvas.style.height = VH + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); // draw in logical CSS px
+}
+
+// Reserved vertical space for the HUD (top) and the New Game button / touch controls (bottom).
+function topHudHeight()  { return 90; }
+function bottomHeight(world) { return world.show_mobile_controls ? 250 : 90; }
+
+// Fullscreen behaviour: the grid scales UP to fill the available space.
+function get_cell_size(world) {
+  const availW = VW - 40;
+  const availH = VH - topHudHeight() - bottomHeight(world);
+  const cs = Math.floor(Math.min(availW / world.grid_size, availH / world.grid_size));
+  return Math.max(36, Math.min(cs, 160));
+}
+
+/* ---------------------------------------------------------------- assets */
 const IMAGE_FILES = {
   agent: "agent.png", gold: "gold.png", wumpus: "wumpus.png", pit: "pit.png",
   stench: "stench.png", breeze: "breeze.png",
@@ -105,18 +131,15 @@ async function loadAllAssets() {
   const imgJobs = Object.entries(IMAGE_FILES).map(async ([name, file]) => {
     images[name] = await loadImage(file);
   });
-  // Sounds: store the URL + playback rate; we clone per play for overlap.
   for (const [name, [file, rate]] of Object.entries(SOUND_FILES)) {
     sounds[name] = { url: file, rate };
   }
   await Promise.all(imgJobs);
-  // Make sure the bundled font is ready before first paint.
   if (document.fonts && document.fonts.load) {
     try { await document.fonts.load("24px VT323"); } catch (e) {}
   }
 }
 
-let audioUnlocked = false;
 function play(name) {
   const s = sounds[name];
   if (!s) return;
@@ -128,13 +151,12 @@ function play(name) {
 }
 
 /* ---------------------------------------------------------------- fonts */
-// VT323 at the various sizes used by the original.
 const F = {
   base:  '24px "VT323", monospace',
   small: '20px "VT323", monospace',
   large: '32px "VT323", monospace',
   title: '48px "VT323", monospace',
-  tiny:  '17px monospace', // matches pygame.font.Font(None, 17) in rules body
+  tiny:  '17px monospace',
 };
 function setFont(f) { ctx.font = f; }
 function textWidth(str, f) { setFont(f); return ctx.measureText(str).width; }
@@ -260,12 +282,10 @@ class GameWorld {
 
     const rint = (n) => Math.floor(Math.random() * n);
 
-    // Place Wumpus (not on agent)
     while (true) {
       const x = rint(this.grid_size), y = rint(this.grid_size);
       if (x !== this.agent_pos[0] || y !== this.agent_pos[1]) { this.wumpus_pos = [x, y]; break; }
     }
-    // Place Gold (not on agent or wumpus)
     while (true) {
       const x = rint(this.grid_size), y = rint(this.grid_size);
       if ((x !== this.agent_pos[0] || y !== this.agent_pos[1]) &&
@@ -435,15 +455,15 @@ function process_game_action(world, action) {
 
 /* ---------------------------------------------------------------- mobile controls */
 function get_mobile_rects() {
-  const btn = 62, gap = 8, cx = 115, cy = HEIGHT - 170;
-  const aw = 92, ah = 58, agap = 12, ay = HEIGHT - 130;
+  const btn = 62, gap = 8, cx = 115, cy = VH - 170;
+  const aw = 92, ah = 58, agap = 12, ay = VH - 130;
   return {
     up:    { x: cx - btn / 2,        y: cy - btn - gap / 2, w: btn, h: btn },
     down:  { x: cx - btn / 2,        y: cy + gap / 2,       w: btn, h: btn },
     left:  { x: cx - btn - gap / 2,  y: cy - btn / 2,       w: btn, h: btn },
     right: { x: cx + gap / 2,        y: cy - btn / 2,       w: btn, h: btn },
-    shoot: { x: WIDTH - 2 * aw - agap - 15, y: ay, w: aw, h: ah },
-    scout: { x: WIDTH - aw - 15,            y: ay, w: aw, h: ah },
+    shoot: { x: VW - 2 * aw - agap - 15, y: ay, w: aw, h: ah },
+    scout: { x: VW - aw - 15,            y: ay, w: aw, h: ah },
   };
 }
 
@@ -479,15 +499,15 @@ function draw_mobile_controls(world) {
 }
 
 /* ---------------------------------------------------------------- rendering */
-function drawImageFit(img, gx, gy, gridX, gridY, cs) {
+// Draw a grid entity at the proportional size the desktop .py version uses.
+function drawEntity(name, gx, gy, gridX, gridY, cs) {
+  const img = images[name];
   if (!img) return;
+  const base = IMAGE_SIZES[name] || [cs - 20, cs - 20];
+  const factor = cs / CELL_SIZE;
+  let w = base[0] * factor, h = base[1] * factor;
   const maxDim = cs - 8;
-  let w = img.naturalWidth, h = img.naturalHeight;
-  if (w > maxDim || h > maxDim) {
-    const scale = maxDim / Math.max(w, h);
-    w = Math.max(1, Math.round(w * scale));
-    h = Math.max(1, Math.round(h * scale));
-  }
+  if (w > maxDim || h > maxDim) { const s = maxDim / Math.max(w, h); w *= s; h *= s; }
   const x = gridX + gx * cs + (cs - w) / 2;
   const y = gridY + gy * cs + (cs - h) / 2;
   ctx.drawImage(img, x, y, w, h);
@@ -495,9 +515,9 @@ function drawImageFit(img, gx, gy, gridX, gridY, cs) {
 
 function draw_game(world) {
   ctx.fillStyle = OFF_WHITE;
-  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.fillRect(0, 0, VW, VH);
 
-  const sw = WIDTH, sh = HEIGHT;
+  const sw = VW, sh = VH;
   const t = nowS();
 
   // Scout cooldown timer with pause-during-rules behaviour
@@ -527,23 +547,18 @@ function draw_game(world) {
   }
 
   if (!world.game_over) {
-    const cs = CELL_SIZE;
+    const cs = get_cell_size(world);
     world.cell_size = cs;
     const gw = world.grid_size * cs, gh = world.grid_size * cs;
-    let gridX, gridY;
-    if (world.show_mobile_controls) {
-      const topHud = 90, botCtrl = 250;
-      const availH = sh - topHud - botCtrl;
-      gridX = (sw - gw) / 2 + shakeX;
-      gridY = topHud + (availH - gh) / 2 + shakeY;
-    } else {
-      gridX = (sw - gw) / 2 + shakeX;
-      gridY = (sh - gh - 40) / 2 + shakeY;
-    }
-    world._gridX = gridX; world._gridY = gridY; // remember for click mapping
+    const topHud = topHudHeight();
+    const availH = sh - topHud - bottomHeight(world);
+    const gridX = (sw - gw) / 2 + shakeX;
+    const gridY = topHud + (availH - gh) / 2 + shakeY;
+    world._gridX = gridX; world._gridY = gridY;
 
     const cp = world.get_current_perceptions();
     const PERC = Math.max(14, Math.floor(cs / 3));
+    const coordFont = cs >= 56 ? F.small : F.tiny;
 
     for (let row = 0; row < world.grid_size; row++) {
       for (let col = 0; col < world.grid_size; col++) {
@@ -559,7 +574,7 @@ function draw_game(world) {
           ctx.fillStyle = "rgba(255,255,0,0.59)"; ctx.fillRect(rx, ry, cs, cs);
         }
 
-        if (cs >= 40) drawText(`${col + 1},${world.grid_size - row}`, rx + 3, ry + 2, BLACK, F.small);
+        if (cs >= 40) drawText(`${col + 1},${world.grid_size - row}`, rx + 3, ry + 2, BLACK, coordFont);
 
         if (world.marked_cells.has(key(col, row))) drawText("!", rx + cs - 14, ry - 2, RED, F.small);
 
@@ -574,13 +589,13 @@ function draw_game(world) {
     const [gx, gy] = world.gold_pos;
     const goldElapsed = animMs - world.gold_collect_anim_start;
     if (!world.has_gold && world.explored.has(key(gx, gy))) {
-      drawImageFit(images.gold, gx, gy, gridX, gridY, cs);
+      drawEntity("gold", gx, gy, gridX, gridY, cs);
     } else if (world.has_gold && world.gold_collect_anim_start > 0 && goldElapsed < world.gold_collect_anim_duration && images.gold) {
       const progress = goldElapsed / world.gold_collect_anim_duration;
       const scale = 1.0 + 1.2 * progress;
-      const baseW = images.gold.naturalWidth, baseH = images.gold.naturalHeight;
-      const fit = Math.min((cs - 8) / Math.max(baseW, baseH), 1);
-      const w = Math.max(1, baseW * fit * scale), h = Math.max(1, baseH * fit * scale);
+      const factor = cs / CELL_SIZE;
+      const bw = IMAGE_SIZES.gold[0] * factor, bh = IMAGE_SIZES.gold[1] * factor;
+      const w = Math.max(1, bw * scale), h = Math.max(1, bh * scale);
       const ax = gridX + gx * cs + (cs - w) / 2, ay = gridY + gy * cs + (cs - h) / 2;
       ctx.save();
       ctx.globalAlpha = Math.max(0, 1 - progress);
@@ -589,12 +604,12 @@ function draw_game(world) {
     }
 
     if (world.wumpus_alive && world.explored.has(key(world.wumpus_pos[0], world.wumpus_pos[1])))
-      drawImageFit(images.wumpus, world.wumpus_pos[0], world.wumpus_pos[1], gridX, gridY, cs);
+      drawEntity("wumpus", world.wumpus_pos[0], world.wumpus_pos[1], gridX, gridY, cs);
 
     for (const [px, py] of world.pits)
-      if (world.explored.has(key(px, py))) drawImageFit(images.pit, px, py, gridX, gridY, cs);
+      if (world.explored.has(key(px, py))) drawEntity("pit", px, py, gridX, gridY, cs);
 
-    drawImageFit(images.agent, world.agent_pos[0], world.agent_pos[1], gridX, gridY, cs);
+    drawEntity("agent", world.agent_pos[0], world.agent_pos[1], gridX, gridY, cs);
 
     if (world.gold_collected_message)
       drawText(world.gold_collected_message, sw / 2, 20, DARK_GOLD, F.large, "center");
@@ -603,24 +618,38 @@ function draw_game(world) {
     if (world.arrow_miss_message)
       drawText(world.arrow_miss_message, sw / 2, 50, "rgb(180,80,0)", F.large, "center");
 
+    // Top-right status: Arrows / Pits / Scout (single pit counter, matches .py)
     drawText(`Arrows: ${world.has_arrow ? 1 : 0}`, sw - 100, 20, BLACK, F.small);
+    drawText(`Pits: ${world.pits.length}`, sw - 100, 50, BLUE, F.small);
     if (world.scout_cooldown > 0)
       drawText(`Scout: ${Math.floor(world.scout_cooldown)}s`, sw - 100, 80, "rgb(200,0,0)", F.small);
     else
       drawText("Scout: Ready (R)", sw - 100, 80, "rgb(0,150,0)", F.small);
 
-    // Rules button
+    // Rules button (with hover enlarge)
     const rb = { x: sw - 200, y: 20, w: 80, h: 25 };
-    if (images.rules) ctx.drawImage(images.rules, rb.x, rb.y, rb.w, rb.h);
-    else { ctx.fillStyle = "rgb(100,150,200)"; ctx.fillRect(rb.x, rb.y, rb.w, rb.h); }
+    const rbHover = rectHit(rb, mouse.x, mouse.y);
+    if (images.rules) {
+      if (rbHover) ctx.drawImage(images.rules, rb.x - 2, rb.y - 2, rb.w + 5, rb.h + 5);
+      else         ctx.drawImage(images.rules, rb.x, rb.y, rb.w, rb.h);
+    } else {
+      ctx.fillStyle = rbHover ? "rgb(130,180,230)" : "rgb(100,150,200)";
+      ctx.fillRect(rb.x, rb.y, rb.w, rb.h);
+    }
     drawText("Rules", rb.x + rb.w / 2, rb.y + rb.h / 2, BLACK, F.small, "center", "middle");
 
     draw_mobile_controls(world);
 
-    // New Game button
+    // New Game button (with hover enlarge)
     const nb = { x: sw / 2 - 75, y: sh - 50, w: 150, h: 30 };
-    if (images.rock_button) ctx.drawImage(images.rock_button, nb.x, nb.y, nb.w, nb.h);
-    else { ctx.fillStyle = "rgb(100,100,100)"; ctx.fillRect(nb.x, nb.y, nb.w, nb.h); }
+    const nbHover = rectHit(nb, mouse.x, mouse.y);
+    if (images.rock_button) {
+      if (nbHover) ctx.drawImage(images.rock_button, nb.x - 2, nb.y - 2, nb.w + 5, nb.h + 5);
+      else         ctx.drawImage(images.rock_button, nb.x, nb.y, nb.w, nb.h);
+    } else {
+      ctx.fillStyle = nbHover ? "rgb(120,120,120)" : "rgb(100,100,100)";
+      ctx.fillRect(nb.x, nb.y, nb.w, nb.h);
+    }
     drawText("New Game", nb.x + nb.w / 2, nb.y + nb.h / 2, BLACK, F.base, "center", "middle");
   } else {
     // Game over / victory overlay
@@ -639,7 +668,6 @@ function draw_game(world) {
       glow = [200, 0, 0];
     }
 
-    // pulsing border glow
     const pulse = 0.5 + 0.5 * Math.sin(animMs * 0.005);
     const glowAlpha = Math.floor(60 + 120 * pulse);
     for (let thickness = 12; thickness > 0; thickness -= 3) {
@@ -648,7 +676,7 @@ function draw_game(world) {
       ctx.strokeRect((thickness * 3) / 2, (thickness * 3) / 2, sw - thickness * 3, sh - thickness * 3);
     }
 
-    const ew = endImg ? 400 : 400, eh = endImg ? 200 : 200;
+    const ew = 400, eh = 200;
     const imgX = (sw - ew) / 2, imgY = (sh - eh) / 2 - 50;
     if (endImg) ctx.drawImage(endImg, imgX, imgY, ew, eh);
 
@@ -667,27 +695,31 @@ function draw_game(world) {
 
     if (world.show_continue) {
       const cr = { x: sw / 2 - 100, y: sh - 110, w: 200, h: 50 };
-      if (images.gold_plate) ctx.drawImage(images.gold_plate, cr.x, cr.y, cr.w, cr.h);
-      else { ctx.fillStyle = "rgb(200,150,0)"; ctx.fillRect(cr.x, cr.y, cr.w, cr.h); }
+      const crHover = rectHit(cr, mouse.x, mouse.y);
+      if (images.gold_plate) {
+        if (crHover) ctx.drawImage(images.gold_plate, cr.x - 4, cr.y - 2, cr.w + 8, cr.h + 4);
+        else         ctx.drawImage(images.gold_plate, cr.x, cr.y, cr.w, cr.h);
+      } else {
+        ctx.fillStyle = crHover ? "rgb(230,180,0)" : "rgb(200,150,0)";
+        ctx.fillRect(cr.x, cr.y, cr.w, cr.h);
+      }
       drawText("Continue", cr.x + cr.w / 2, cr.y + cr.h / 2, BLACK, F.large, "center", "middle");
     }
   }
 
-  // Always-on HUD
+  // Always-on HUD (Moves + Level only; pit count lives top-right)
   drawText(`Moves: ${world.move_count}`, 20, 20, RED, F.base);
   const mw = textWidth(`Moves: ${world.move_count}`, F.base);
   drawText(`Level: ${world.grid_size}x${world.grid_size}`, 20 + mw + 10, 20, BLUE, F.base);
-  drawText(`Pits: ${world.pits.length}`, 20, 50, BLUE, F.base);
 
   if (world.show_rules) draw_rules_screen(world);
 }
 
 function draw_rules_screen(world) {
-  const sw = WIDTH, sh = HEIGHT;
+  const sw = VW, sh = VH;
   ctx.fillStyle = "rgba(50,50,50,0.90)";
   ctx.fillRect(0, 0, sw, sh);
 
-  // panel height from content
   let needed = 30;
   for (const line of RULES_TEXT) {
     if (!line) needed += 10;
@@ -720,18 +752,19 @@ function draw_rules_screen(world) {
 
 /* ---------------------------------------------------------------- input */
 let world;
+const mouse = { x: -1, y: -1 };
 
 function canvasPos(evt) {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = WIDTH / rect.width;
-  const scaleY = HEIGHT / rect.height;
-  const cx = (evt.clientX ?? (evt.touches && evt.touches[0].clientX)) - rect.left;
-  const cy = (evt.clientY ?? (evt.touches && evt.touches[0].clientY)) - rect.top;
+  const scaleX = VW / rect.width;
+  const scaleY = VH / rect.height;
+  const cx = (evt.clientX ?? (evt.touches && evt.touches[0] && evt.touches[0].clientX)) - rect.left;
+  const cy = (evt.clientY ?? (evt.touches && evt.touches[0] && evt.touches[0].clientY)) - rect.top;
   return [cx * scaleX, cy * scaleY];
 }
 
 function handlePointerDown(px, py) {
-  const sw = WIDTH, sh = HEIGHT;
+  const sw = VW, sh = VH;
 
   if (world.show_rules) { world.show_rules = false; return; }
 
@@ -744,11 +777,9 @@ function handlePointerDown(px, py) {
     return;
   }
 
-  // Rules button
   const rb = { x: sw - 200, y: 20, w: 80, h: 25 };
   if (rectHit(rb, px, py)) { world.show_rules = true; return; }
 
-  // Cell marking
   const cs = world.cell_size || CELL_SIZE;
   const gw = world.grid_size * cs, gh = world.grid_size * cs;
   const gridX = world._gridX, gridY = world._gridY;
@@ -760,11 +791,9 @@ function handlePointerDown(px, py) {
     else world.marked_cells.add(k);
   }
 
-  // New Game button
   const nb = { x: sw / 2 - 75, y: sh - 50, w: 150, h: 30 };
   if (rectHit(nb, px, py)) { world.reset_world(); return; }
 
-  // Mobile control buttons
   if (world.show_mobile_controls) {
     const rects = get_mobile_rects();
     for (const k of Object.keys(rects)) {
@@ -779,6 +808,11 @@ const KEY_ACTION = {
 };
 
 function setupInput() {
+  canvas.addEventListener("mousemove", (e) => {
+    const [px, py] = canvasPos(e);
+    mouse.x = px; mouse.y = py;
+  });
+
   canvas.addEventListener("mousedown", (e) => {
     const [px, py] = canvasPos(e);
     handlePointerDown(px, py);
@@ -788,6 +822,7 @@ function setupInput() {
     e.preventDefault();
     world.show_mobile_controls = true;
     const [px, py] = canvasPos(e);
+    mouse.x = px; mouse.y = py;
     handlePointerDown(px, py);
   }, { passive: false });
 
@@ -797,6 +832,8 @@ function setupInput() {
     const action = KEY_ACTION[e.key];
     if (action) { process_game_action(world, action); e.preventDefault(); }
   });
+
+  window.addEventListener("resize", resizeCanvas);
 }
 
 /* ---------------------------------------------------------------- main loop */
@@ -804,7 +841,7 @@ function frame() {
   try {
     draw_game(world);
   } catch (err) {
-    ctx.fillStyle = "rgb(0,0,0)"; ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.fillStyle = "rgb(0,0,0)"; ctx.fillRect(0, 0, VW, VH);
     drawText("DRAW ERROR: " + err.message, 10, 10, "rgb(255,80,80)", F.small);
     console.error(err);
   }
@@ -812,8 +849,10 @@ function frame() {
 }
 
 async function boot() {
+  resizeCanvas();
   await loadAllAssets();
-  document.getElementById("loading").style.display = "none";
+  const loading = document.getElementById("loading");
+  if (loading) loading.style.display = "none";
   world = new GameWorld();
   setupInput();
   requestAnimationFrame(frame);
