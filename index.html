@@ -14,25 +14,22 @@
       margin: 0;
       padding: 0;
       height: 100%;
-      background: #1a1a1a;
+      background: #f5f5f0;
       overflow: hidden;
       font-family: "VT323", monospace;
     }
     #wrap {
       position: fixed;
       inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
     }
-    /* Canvas keeps its 890x970 aspect ratio and scales to fit the viewport */
+    /* Canvas fills the entire viewport — no letterbox bars */
     #game {
+      display: block;
       background: #f5f5f0;
       image-rendering: auto;
-      max-width: 100%;
-      max-height: 100%;
+      width: 100vw;
+      height: 100vh;
       touch-action: none;
-      box-shadow: 0 0 24px rgba(0,0,0,0.6);
     }
     #loading {
       position: fixed;
