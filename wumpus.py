@@ -27,7 +27,7 @@ def change_speed(sound, speed):
     if IS_WEB:
         return sound  # skip on web: importing numpy blocks the browser runtime
     try:
-        import numpy as np
+        np = __import__('numpy')  # indirect import so pygbag's static packager doesn't try to bundle numpy
         samples = pygame.sndarray.array(sound)
         indices = np.arange(0, len(samples), speed).astype(int)
         indices = indices[indices < len(samples)]
@@ -1114,7 +1114,7 @@ def draw_rules_screen():
     # Pre-calculate panel height based on actual content so nothing gets clipped
     title_font_temp  = VT323_FONT_TITLE
     section_font_temp = VT323_FONT
-    text_font_temp   = pygame.font.SysFont('timesnewroman', 17)
+    text_font_temp   = pygame.font.Font(None, 17)
     needed_height = 30  # top padding
     for line in RULES_TEXT:
         if not line:
@@ -1144,7 +1144,7 @@ def draw_rules_screen():
     # Render each line of the rules text
     title_font   = VT323_FONT_TITLE
     section_font = VT323_FONT
-    text_font    = pygame.font.SysFont('timesnewroman', 17)
+    text_font    = pygame.font.Font(None, 17)
     
     y_offset = panel_y + 20  # Starting Y position for text (20 pixels from top of panel)
     for line in RULES_TEXT:  # Loops through each line of rules text
