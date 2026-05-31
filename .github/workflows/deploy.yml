@@ -26,11 +26,41 @@ jobs:
       - name: Build with pygbag
         run: python -m pygbag --build --ume_block 0 wumpus.py; code=$?; if [ $code -ne 0 ] && [ $code -ne 3 ]; then exit $code; fi
 
-      - name: Add coi-serviceworker (enables SharedArrayBuffer on GitHub Pages)
+      - name: Inject credentialless COOP/COEP service worker
         run: |
-          curl -L https://raw.githubusercontent.com/gzuidhof/coi-serviceworker/master/coi-serviceworker.min.js \
-               -o build/web/coi-serviceworker.min.js
-          sed -i 's|</head>|<script src="coi-serviceworker.min.js"></script></head>|' build/web/index.html
+          # Service worker: sets COOP + credentialless COEP
+          # credentialless allows cross-origin CDN resources (pygame-web.github.io)
+          # while still enabling SharedArrayBuffer needed by BrowserFS
+          cat > build/web/sw.js << 'SWEOF'
+          self.addEventListener('install', () => self.skipWaiting());
+          self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+          self.addEventListener('fetch', e => {
+            if (e.request.cache === 'only-if-cached' && e.request.mode !== 'same-origin') return;
+            e.respondWith(
+              fetch(e.request).then(r => {
+                if (!r || r.status === 0 || r.type === 'opaque') return r;
+                const h = new Headers(r.headers);
+                h.set('Cross-Origin-Opener-Policy', 'same-origin');
+                h.set('Cross-Origin-Embedder-Policy', 'credentialless');
+                return new Response(r.body, {status: r.status, statusText: r.statusText, headers: h});
+              }).catch(() => fetch(e.request))
+            );
+          });
+          SWEOF
+
+          # Registration script — reloads once after SW activates
+          cat > build/web/coi-register.js << 'REGEOF'
+          if (typeof SharedArrayBuffer === 'undefined') {
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.register('sw.js').then(() => {
+                if (!navigator.serviceWorker.controller) window.location.reload();
+              });
+            }
+          }
+          REGEOF
+
+          # Inject registration script into index.html
+          sed -i 's|</head>|<script src="coi-register.js"></script></head>|' build/web/index.html
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
