@@ -1169,6 +1169,25 @@ def draw_rules_screen():
         screen.blit(text_surface, (text_x, y_offset))  # Draws the text at calculated position
         y_offset += text_surface.get_height() + 5  # Moves down for next line (with 5px gap)
 
+def _stage(msg):
+    """Show progress as green text on the page so we can see exactly how far
+    startup gets in the browser, without needing the dev console."""
+    print("STAGE:", msg)
+    try:
+        import platform as _pf
+        d = _pf.window.document
+        e = d.getElementById("wstage")
+        if e is None:
+            e = d.createElement("div")
+            e.id = "wstage"
+            e.style.cssText = ("position:fixed;left:0;top:0;z-index:99999;"
+                               "background:#002;color:#0f0;font:16px monospace;padding:6px;")
+            d.body.appendChild(e)
+        e.textContent = "STAGE: " + msg
+    except Exception:
+        pass
+
+
 async def main():
     global screen, clock
     global VT323_FONT, VT323_FONT_SMALL, VT323_FONT_LARGE, VT323_FONT_TITLE
@@ -1178,15 +1197,18 @@ async def main():
     global snd_monster_footstep, snd_monster_scream, snd_falling_scream
 
     # ── Initialise pygame ──
+    _stage("pygame.init")
     pygame.init()
     try:
         pygame.mixer.init()
     except BaseException as e:
         print(f"mixer.init() failed (audio disabled): {e}")
 
+    _stage("set_mode")
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
     clock = pygame.time.Clock()
+    await asyncio.sleep(0)
 
     # Load fonts — three levels of fallback so we always get something
     try:
@@ -1209,6 +1231,7 @@ async def main():
 
     try:
         # Load images (requires display to be initialised first)
+        _stage("load images")
         agent_img       = load_image('agent.png',       default_color=(0, 0, 255))
         gold_img        = load_image('gold.png',         default_color=(255, 215, 0))
         wumpus_img      = load_image('wumpus.png',       default_color=(255, 0, 0))
@@ -1222,6 +1245,7 @@ async def main():
         gold_plate_img  = load_image('gold_plate.png',   default_color=(200, 150, 0),     target_size=(200, 50))
 
         # Load sounds (requires mixer to be initialised first)
+        _stage("load sounds")
         snd_footstep         = load_sound('footstep.ogg')
         snd_gold_collected   = load_sound('gold_collected.ogg')
         snd_arrow_kill       = load_sound('arrow_sound+monster_dying.ogg')
@@ -1256,6 +1280,7 @@ async def main():
                     return
             await asyncio.sleep(0)
 
+    _stage("create GameWorld")
     try:
         world = GameWorld() # Creates the game world with default 6x6 grid
     except Exception as _we:
@@ -1272,8 +1297,13 @@ async def main():
                 if _e2.type == pygame.QUIT: pygame.quit(); return
             await asyncio.sleep(0)
 
+    _stage("entering game loop")
     running = True
+    _frame = 0
     while running:
+        _frame += 1
+        if _frame <= 3:
+            _stage(f"loop frame {_frame}")
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
