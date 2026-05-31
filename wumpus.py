@@ -1172,42 +1172,68 @@ async def main():
     global snd_footstep, snd_gold_collected, snd_arrow_kill, snd_arrow_miss
     global snd_monster_footstep, snd_monster_scream, snd_falling_scream
 
-    # ── Initialise pygame (must happen inside async main for pygbag/web) ──
-    pygame.init()
+    print("=== main() started ===")
+
+    # ── Step 1: pygame.init ──
+    try:
+        pygame.init()
+        print("pygame.init() OK")
+    except BaseException as e:
+        print(f"pygame.init() CRASHED: {e}")
+        return
+
+    # ── Step 2: mixer ──
     try:
         pygame.mixer.init()
-    except Exception as e:
-        print(f"Mixer init failed (audio disabled): {e}")
+        print("mixer.init() OK")
+    except BaseException as e:
+        print(f"mixer.init() failed (audio disabled): {e}")
 
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
-    clock = pygame.time.Clock()
+    # ── Step 3: display ──
+    try:
+        screen = pygame.display.set_mode((800, 600))
+        pygame.display.set_caption("Wumpus World")
+        clock = pygame.time.Clock()
+        print("display OK")
+    except BaseException as e:
+        print(f"display CRASHED: {e}")
+        return
 
-    # Load fonts — three levels of fallback so we always get something
+    # ── Step 4: show something IMMEDIATELY ──
+    screen.fill((255, 255, 0))
+    pygame.display.flip()
+    await asyncio.sleep(0)
+    print("yellow frame shown")
+
+    # ── Step 5: fonts ──
     try:
         _font_path = os.path.join(BASE_DIR, 'VT323-Regular.ttf')
         VT323_FONT       = pygame.font.Font(_font_path, 24)
         VT323_FONT_SMALL = pygame.font.Font(_font_path, 20)
         VT323_FONT_LARGE = pygame.font.Font(_font_path, 32)
         VT323_FONT_TITLE = pygame.font.Font(_font_path, 48)
-    except Exception:
+        print("VT323 font OK")
+    except BaseException:
         try:
             VT323_FONT       = pygame.font.SysFont('Courier New', 24, bold=True)
             VT323_FONT_SMALL = pygame.font.SysFont('Courier New', 20, bold=True)
             VT323_FONT_LARGE = pygame.font.SysFont('Courier New', 32, bold=True)
             VT323_FONT_TITLE = pygame.font.SysFont('Courier New', 48, bold=True)
-        except Exception:
+            print("SysFont fallback OK")
+        except BaseException:
             VT323_FONT       = pygame.font.Font(None, 24)
             VT323_FONT_SMALL = pygame.font.Font(None, 20)
             VT323_FONT_LARGE = pygame.font.Font(None, 32)
             VT323_FONT_TITLE = pygame.font.Font(None, 48)
+            print("default font fallback OK")
 
     # Show a bright loading screen for 2 seconds — confirms Python is running
     _dbg = pygame.font.Font(None, 64)
     screen.fill((255, 255, 0))   # bright yellow — impossible to miss
-    screen.blit(_dbg.render("LOADING...", True, (0, 0, 0)), (WIDTH // 2 - 130, HEIGHT // 2 - 32))
+    screen.blit(_dbg.render("LOADING...", True, (0, 0, 0)), (400 - 130, 300 - 32))
     pygame.display.flip()
     await asyncio.sleep(2)        # hold for 2 seconds so it's visible
+    print("loading screen done")
 
     try:
         # Load images (requires display to be initialised first)
