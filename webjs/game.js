@@ -75,20 +75,27 @@ let VW = window.innerWidth;   // logical viewport width  (CSS px)
 let VH = window.innerHeight;  // logical viewport height (CSS px)
 let DPR = window.devicePixelRatio || 1;
 
+// Minimum logical width the UI is designed for. On screens narrower than this
+// (phones in portrait) we render at this width and scale the whole canvas down
+// to fit, so the desktop-style HUD/text never runs off the edge — effectively
+// the browser's "Desktop site" mode, applied automatically.
+const DESIGN_MIN_W = 760;
 function resizeCanvas() {
   DPR = window.devicePixelRatio || 1;
-  VW = window.innerWidth;
-  VH = window.innerHeight;
-  canvas.width  = Math.round(VW * DPR);
-  canvas.height = Math.round(VH * DPR);
-  canvas.style.width  = VW + "px";
-  canvas.style.height = VH + "px";
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); // draw in logical CSS px
+  const cssW = window.innerWidth, cssH = window.innerHeight;
+  canvas.width  = Math.round(cssW * DPR);
+  canvas.height = Math.round(cssH * DPR);
+  canvas.style.width  = cssW + "px";
+  canvas.style.height = cssH + "px";
+  const uiScale = cssW < DESIGN_MIN_W ? cssW / DESIGN_MIN_W : 1;
+  VW = cssW / uiScale;   // logical width  (>= DESIGN_MIN_W)
+  VH = cssH / uiScale;   // logical height
+  ctx.setTransform(DPR * uiScale, 0, 0, DPR * uiScale, 0, 0); // draw in logical px
 }
 
 // Reserved vertical space for the HUD (top) and the New Game button / touch controls (bottom).
 function topHudHeight()  { return 90; }
-function bottomHeight(world) { return world.show_mobile_controls ? 250 : 90; }
+function bottomHeight(world) { return world.show_mobile_controls ? 280 : 90; }
 
 // Fullscreen behaviour: the grid scales UP to fill the available space.
 function get_cell_size(world) {
@@ -524,15 +531,18 @@ function process_game_action(world, action) {
 
 /* ---------------------------------------------------------------- mobile controls */
 function get_mobile_rects() {
-  const btn = 62, gap = 30, cx = 120, cy = VH - 170;
-  const aw = 92, ah = 58, agap = 12, ay = VH - 130;
+  const btn = 62, gap = 40, cx = 130, cy = VH - 175;
+  const aw = 92, ah = 58, agap = 12;
+  const ax = VW - aw - 15;
+  const scoutY = VH - 125;
+  const shootY = scoutY - ah - agap;
   return {
     up:    { x: cx - btn / 2,        y: cy - btn - gap / 2, w: btn, h: btn },
     down:  { x: cx - btn / 2,        y: cy + gap / 2,       w: btn, h: btn },
     left:  { x: cx - btn - gap / 2,  y: cy - btn / 2,       w: btn, h: btn },
     right: { x: cx + gap / 2,        y: cy - btn / 2,       w: btn, h: btn },
-    shoot: { x: VW - 2 * aw - agap - 15, y: ay, w: aw, h: ah },
-    scout: { x: VW - aw - 15,            y: ay, w: aw, h: ah },
+    shoot: { x: ax, y: shootY, w: aw, h: ah },
+    scout: { x: ax, y: scoutY, w: aw, h: ah },
   };
 }
 
@@ -691,12 +701,12 @@ function draw_game(world) {
       drawText(world.arrow_miss_message, sw / 2, 50, "rgb(180,80,0)", F.large, "center");
 
     // Top-right status: Arrows / Pits / Scout (single pit counter, matches .py)
-    drawText(`Arrows: ${world.has_arrow ? 1 : 0}`, sw - 100, 20, BLACK, F.small);
-    drawText(`Pits: ${world.pits.length}`, sw - 100, 50, BLUE, F.small);
+    drawText(`Arrows: ${world.has_arrow ? 1 : 0}`, sw - 12, 20, BLACK, F.small, "right");
+    drawText(`Pits: ${world.pits.length}`, sw - 12, 50, BLUE, F.small, "right");
     if (world.scout_cooldown > 0)
-      drawText(`Scout: ${Math.floor(world.scout_cooldown)}s`, sw - 100, 80, "rgb(200,0,0)", F.small);
+      drawText(`Scout: ${Math.floor(world.scout_cooldown)}s`, sw - 12, 80, "rgb(200,0,0)", F.small, "right");
     else
-      drawText("Scout: Ready (R)", sw - 100, 80, "rgb(0,150,0)", F.small);
+      drawText("Scout: Ready (R)", sw - 12, 80, "rgb(0,150,0)", F.small, "right");
 
     // Rules button (with hover enlarge)
     const rb = { x: sw - 200, y: 20, w: 80, h: 25 };

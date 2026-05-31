@@ -624,21 +624,23 @@ def process_game_action(world, action):
 def get_mobile_rects(screen_width, screen_height):
     """Return dict of on-screen button Rects, anchored to bottom corners."""
     btn  = 62   # D-pad button size
-    gap  = 30   # gap between D-pad buttons (spread out so they aren't cramped)
-    cx   = 120  # D-pad horizontal centre from left edge
-    cy   = screen_height - 170  # D-pad vertical centre
+    gap  = 40   # gap between D-pad buttons (spread out so they aren't cramped)
+    cx   = 130  # D-pad horizontal centre from left edge
+    cy   = screen_height - 175  # D-pad vertical centre
 
     aw, ah = 92, 58   # action button width / height
     agap   = 12
-    ay_btn = screen_height - 130
+    ax     = screen_width - aw - 15
+    scout_y = screen_height - 125
+    shoot_y = scout_y - ah - agap
 
     return {
         'up':    pygame.Rect(cx - btn//2,          cy - btn - gap//2, btn, btn),
         'down':  pygame.Rect(cx - btn//2,          cy + gap//2,       btn, btn),
         'left':  pygame.Rect(cx - btn - gap//2,    cy - btn//2,       btn, btn),
         'right': pygame.Rect(cx + gap//2,          cy - btn//2,       btn, btn),
-        'shoot': pygame.Rect(screen_width - 2*aw - agap - 15, ay_btn, aw, ah),
-        'scout': pygame.Rect(screen_width - aw - 15,           ay_btn, aw, ah),
+        'shoot': pygame.Rect(ax, shoot_y, aw, ah),
+        'scout': pygame.Rect(ax, scout_y, aw, ah),
     }
 
 def draw_mobile_controls(surface, world, screen_width, screen_height):
@@ -689,7 +691,7 @@ def get_cell_size(world, screen_width, screen_height):
     use the whole window (after reserving the top HUD and the bottom bar/touch
     controls), clamped between 36px and 160px."""
     top_hud = 90
-    bottom  = 250 if world.show_mobile_controls else 90
+    bottom  = 280 if world.show_mobile_controls else 90
     available_w = (screen_width  - 40) / world.grid_size
     available_h = (screen_height - top_hud - bottom) / world.grid_size
     cs = int(min(available_w, available_h))
