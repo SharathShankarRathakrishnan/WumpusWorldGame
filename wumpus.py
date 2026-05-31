@@ -1380,4 +1380,49 @@ async def main():
 
     pygame.quit()
 
-asyncio.run(main())
+
+def _report_fatal(tb_text):
+    """Make a fatal startup error impossible to miss in the browser:
+    write it to the page title and a big on-page banner, and also try
+    to paint it on the pygame canvas."""
+    print("FATAL:", tb_text)
+    # 1) Surface to the DOM / tab title so it's readable without a console
+    try:
+        import platform as _pf
+        _doc = _pf.window.document
+        _doc.title = "WUMPUS ERROR: " + tb_text.strip().splitlines()[-1][:80]
+        _banner = _doc.createElement("div")
+        _banner.style.cssText = (
+            "position:fixed;left:0;top:0;right:0;z-index:99999;"
+            "background:#900;color:#fff;font:14px monospace;"
+            "white-space:pre-wrap;padding:12px;max-height:60vh;overflow:auto;")
+        _banner.textContent = "WUMPUS WORLD FAILED TO START:\n\n" + tb_text
+        _doc.body.appendChild(_banner)
+    except Exception as _e:
+        print("(could not write DOM banner:", _e, ")")
+    # 2) Try to paint on the canvas too
+    try:
+        _scr = pygame.display.get_surface()
+        if _scr is not None:
+            _scr.fill((0, 0, 0))
+            _f = pygame.font.Font(None, 22)
+            _yy = 10
+            for _ln in (["WUMPUS WORLD FAILED TO START:"] + tb_text.splitlines())[:30]:
+                _scr.blit(_f.render(_ln[:90], True, (255, 90, 90)), (10, _yy))
+                _yy += 22
+            pygame.display.flip()
+    except Exception as _e2:
+        print("(could not paint canvas error:", _e2, ")")
+
+
+async def _guarded_main():
+    try:
+        await main()
+    except BaseException:
+        import traceback
+        _report_fatal(traceback.format_exc())
+        # keep the runtime alive so the banner stays visible
+        while True:
+            await asyncio.sleep(1)
+
+asyncio.run(_guarded_main())
