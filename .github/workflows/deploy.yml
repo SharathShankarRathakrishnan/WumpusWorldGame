@@ -15,88 +15,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install pygbag
-        run: pip install pygbag==0.8.6
-
-      - name: Stage clean game folder (entry MUST be named main.py)
+      # The browser game is a self-contained static site in webjs/ — plain
+      # HTML5/Canvas/JavaScript, no build step, no WebAssembly, no CDN. We just
+      # publish that folder as-is so it loads instantly on any host.
+      - name: Verify webjs build is complete
         run: |
-          rm -rf webgame
-          mkdir webgame
-          # pygbag runs assets/main.py — the entry file must be named main.py
-          cp wumpus.py webgame/main.py
-          # assets actually loaded by the game (root images, font, sounds/)
-          cp *.png webgame/
-          cp *.jpg webgame/
-          cp VT323-Regular.ttf webgame/
-          cp -r sounds webgame/
-          ls -R webgame
-
-      - name: Build with pygbag
-        run: |
-          cd webgame
-          python -m pygbag --build --ume_block 0 main.py
-          echo "--- verifying main.py is inside the apk ---"
-          python - <<'PY'
-          import glob, zipfile, sys
-          apk = glob.glob('build/web/*.apk')[0]
-          names = zipfile.ZipFile(apk).namelist()
-          assert 'assets/main.py' in names, f"main.py missing from apk! entries={names[:10]}"
-          print("OK: assets/main.py present in", apk)
-          PY
-
-      - name: Self-host pygbag runtime + pygame engine (eliminate cross-origin CDN)
-        # The end user's browser was failing to download the 2.4MB pygame engine
-        # wheel cross-origin from pygame-web.github.io. We mirror the entire pygbag
-        # 0.8 runtime AND that wheel into the deployed site so every fetch is
-        # same-origin (served by the same GitHub Pages host as the game itself).
-        run: |
-          cd webgame/build/web
-          BASE="https://pygame-web.github.io/archives"
-          CDN="$BASE/0.8"
-          REPO="$BASE/repo"
-          # Path the site is served from on GitHub Pages (root-absolute, unambiguous).
-          SITE="/WumpusWorldGame"
-
-          mkdir -p archives/0.8/python311 archives/0.8/vt archives/repo/pkg
-
-          echo "--- mirroring runtime (archives/0.8) ---"
-          for f in pythons.js pythonrc.py browserfs.min.js empty.html favicon.png \
-                   vt.js vtx.js vt/xterm.js vt/xterm-addon-image.js \
-                   python311/main.js python311/main.wasm python311/main.data; do
-            curl -fsSL "$CDN/$f" -o "archives/0.8/$f"
-            echo "  got 0.8/$f ($(wc -c < "archives/0.8/$f") bytes)"
-          done
-
-          echo "--- mirroring package index + pygame engine (archives/repo) ---"
-          curl -fsSL "$REPO/repodata.json" -o archives/repo/repodata.json
-          curl -fsSL "$REPO/index-bi.json" -o archives/repo/index-bi.json
-          curl -fsSL "$REPO/pkg/pygame_static-1.0-cp311-cp311-wasm32_bi_emscripten.whl" \
-               -o archives/repo/pkg/pygame_static-1.0-cp311-cp311-wasm32_bi_emscripten.whl
-          echo "  wheel $(wc -c < archives/repo/pkg/pygame_static-1.0-cp311-cp311-wasm32_bi_emscripten.whl) bytes"
-
-          echo "--- repointing config to same-origin ($SITE) ---"
-          # 1) pythonrc.py hardcodes the package index used to locate the wheel.
-          sed -i "s#https://pygame-web.github.io/archives/repo/#$SITE/archives/repo/#g" \
-                 archives/0.8/pythonrc.py
-          # 2) index-bi.json carries a -CDN- base used to build the wheel URL.
-          sed -i "s#https://pygame-web.github.io/archives/repo/#$SITE/archives/repo/#g" \
-                 archives/repo/index-bi.json
-          # 3) The generated index.html loads the whole runtime from the CDN; repoint it.
-          sed -i "s#https://pygame-web.github.io/archives/0.8#$SITE/archives/0.8#g" index.html
-
-          echo "--- verifying no cross-origin pygame-web refs remain in index.html/pythonrc/index-bi ---"
-          ! grep -rn "pygame-web.github.io" index.html archives/0.8/pythonrc.py archives/repo/index-bi.json \
-            || (echo "ERROR: cross-origin refs still present" && exit 1)
-          echo "OK: runtime fully self-hosted"
-          ls -R archives | head -40
+          test -f webjs/index.html
+          test -f webjs/game.js
+          test -f webjs/agent.png
+          test -d webjs/sounds
+          echo "webjs contents:"
+          ls -R webjs | head -40
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./webgame/build/web
+          publish_dir: ./webjs
