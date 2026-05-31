@@ -1174,13 +1174,16 @@ async def main():
 
     # ── Initialise pygame (must happen inside async main for pygbag/web) ──
     pygame.init()
-    pygame.mixer.init()
+    try:
+        pygame.mixer.init()
+    except Exception as e:
+        print(f"Mixer init failed (audio disabled): {e}")
 
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
     clock = pygame.time.Clock()
 
-    # Load fonts
+    # Load fonts — three levels of fallback so we always get something
     try:
         _font_path = os.path.join(BASE_DIR, 'VT323-Regular.ttf')
         VT323_FONT       = pygame.font.Font(_font_path, 24)
@@ -1188,44 +1191,93 @@ async def main():
         VT323_FONT_LARGE = pygame.font.Font(_font_path, 32)
         VT323_FONT_TITLE = pygame.font.Font(_font_path, 48)
     except Exception:
-        VT323_FONT       = pygame.font.SysFont('Courier New', 24, bold=True)
-        VT323_FONT_SMALL = pygame.font.SysFont('Courier New', 20, bold=True)
-        VT323_FONT_LARGE = pygame.font.SysFont('Courier New', 32, bold=True)
-        VT323_FONT_TITLE = pygame.font.SysFont('Courier New', 48, bold=True)
+        try:
+            VT323_FONT       = pygame.font.SysFont('Courier New', 24, bold=True)
+            VT323_FONT_SMALL = pygame.font.SysFont('Courier New', 20, bold=True)
+            VT323_FONT_LARGE = pygame.font.SysFont('Courier New', 32, bold=True)
+            VT323_FONT_TITLE = pygame.font.SysFont('Courier New', 48, bold=True)
+        except Exception:
+            VT323_FONT       = pygame.font.Font(None, 24)
+            VT323_FONT_SMALL = pygame.font.Font(None, 20)
+            VT323_FONT_LARGE = pygame.font.Font(None, 32)
+            VT323_FONT_TITLE = pygame.font.Font(None, 48)
 
-    # Load images (requires display to be initialised first)
-    agent_img       = load_image('agent.png',       default_color=(0, 0, 255))
-    gold_img        = load_image('gold.png',         default_color=(255, 215, 0))
-    wumpus_img      = load_image('wumpus.png',       default_color=(255, 0, 0))
-    pit_img         = load_image('pit.png',          default_color=(0, 0, 0))
-    stench_img      = load_image('stench.png',       default_color=(200, 0, 0, 150))
-    breeze_img      = load_image('breeze.png',       default_color=(100, 100, 255, 150))
-    game_over_img   = load_image('game_over.png',    default_color=(200, 0, 0, 200),  target_size=(400, 200))
-    victory_img     = load_image('victory.png',      default_color=(0, 200, 0, 200),  target_size=(400, 200))
-    rock_button_img = load_image('rock_button.jpg',  default_color=(100, 100, 100),   target_size=(150, 30))
-    rules_button_img= load_image('rules.png',        default_color=(100, 100, 100),   target_size=(80, 25))
-    gold_plate_img  = load_image('gold_plate.png',   default_color=(200, 150, 0),     target_size=(200, 50))
+    # Show a "Loading…" frame so we know pygame is alive
+    screen.fill((20, 20, 20))
+    _dbg = pygame.font.Font(None, 36)
+    screen.blit(_dbg.render("Loading...", True, (200, 200, 200)), (WIDTH // 2 - 60, HEIGHT // 2))
+    pygame.display.flip()
+    await asyncio.sleep(0)
 
-    # Load sounds (requires mixer to be initialised first)
-    snd_footstep         = load_sound('footstep.ogg')
-    snd_gold_collected   = load_sound('gold_collected.ogg')
-    snd_arrow_kill       = load_sound('arrow_sound+monster_dying.ogg')
-    snd_arrow_miss       = load_sound('arrow_sound.ogg')
-    snd_monster_footstep = load_sound('monster_footsteps.ogg')
-    snd_monster_scream   = load_sound('monster_scream.ogg')
-    snd_falling_scream   = load_sound('falling_scream.ogg')
+    try:
+        # Load images (requires display to be initialised first)
+        agent_img       = load_image('agent.png',       default_color=(0, 0, 255))
+        gold_img        = load_image('gold.png',         default_color=(255, 215, 0))
+        wumpus_img      = load_image('wumpus.png',       default_color=(255, 0, 0))
+        pit_img         = load_image('pit.png',          default_color=(0, 0, 0))
+        stench_img      = load_image('stench.png',       default_color=(200, 0, 0, 150))
+        breeze_img      = load_image('breeze.png',       default_color=(100, 100, 255, 150))
+        game_over_img   = load_image('game_over.png',    default_color=(200, 0, 0, 200),  target_size=(400, 200))
+        victory_img     = load_image('victory.png',      default_color=(0, 200, 0, 200),  target_size=(400, 200))
+        rock_button_img = load_image('rock_button.jpg',  default_color=(100, 100, 100),   target_size=(150, 30))
+        rules_button_img= load_image('rules.png',        default_color=(100, 100, 100),   target_size=(80, 25))
+        gold_plate_img  = load_image('gold_plate.png',   default_color=(200, 150, 0),     target_size=(200, 50))
 
-    if snd_gold_collected:   snd_gold_collected   = change_speed(snd_gold_collected,   1.5)
-    if snd_arrow_kill:       snd_arrow_kill        = change_speed(snd_arrow_kill,       1.5)
-    if snd_arrow_miss:       snd_arrow_miss        = change_speed(snd_arrow_miss,       1.5)
-    if snd_monster_scream:   snd_monster_scream    = change_speed(snd_monster_scream,   2.5)
-    if snd_falling_scream:   snd_falling_scream    = change_speed(snd_falling_scream,   1.25)
-    if snd_monster_footstep: snd_monster_footstep  = change_speed(snd_monster_footstep, 1.5)
+        # Load sounds (requires mixer to be initialised first)
+        snd_footstep         = load_sound('footstep.ogg')
+        snd_gold_collected   = load_sound('gold_collected.ogg')
+        snd_arrow_kill       = load_sound('arrow_sound+monster_dying.ogg')
+        snd_arrow_miss       = load_sound('arrow_sound.ogg')
+        snd_monster_footstep = load_sound('monster_footsteps.ogg')
+        snd_monster_scream   = load_sound('monster_scream.ogg')
+        snd_falling_scream   = load_sound('falling_scream.ogg')
 
-    world = GameWorld() # Creates the game world with default 6x6 grid
+        if snd_gold_collected:   snd_gold_collected   = change_speed(snd_gold_collected,   1.5)
+        if snd_arrow_kill:       snd_arrow_kill        = change_speed(snd_arrow_kill,       1.5)
+        if snd_arrow_miss:       snd_arrow_miss        = change_speed(snd_arrow_miss,       1.5)
+        if snd_monster_scream:   snd_monster_scream    = change_speed(snd_monster_scream,   2.5)
+        if snd_falling_scream:   snd_falling_scream    = change_speed(snd_falling_scream,   1.25)
+        if snd_monster_footstep: snd_monster_footstep  = change_speed(snd_monster_footstep, 1.5)
+
+    except Exception as _load_err:
+        import traceback
+        _tb = traceback.format_exc()
+        print("LOAD ERROR:", _tb)
+        # Show error on canvas so we can read it without a console
+        screen.fill((0, 0, 0))
+        _ef = pygame.font.Font(None, 22)
+        _y = 10
+        for _line in (["LOAD ERROR — check browser console:"] + _tb.splitlines())[:30]:
+            screen.blit(_ef.render(_line[:90], True, (255, 80, 80)), (10, _y))
+            _y += 22
+        pygame.display.flip()
+        while True:
+            for _e in pygame.event.get():
+                if _e.type == pygame.QUIT:
+                    pygame.quit()
+                    return
+            await asyncio.sleep(0)
+
+    try:
+        world = GameWorld() # Creates the game world with default 6x6 grid
+    except Exception as _we:
+        import traceback; _tb2 = traceback.format_exc()
+        print("WORLD INIT ERROR:", _tb2)
+        screen.fill((0,0,0))
+        _ef2 = pygame.font.Font(None, 22)
+        _y2 = 10
+        for _line2 in (["WORLD INIT ERROR:"] + _tb2.splitlines())[:30]:
+            screen.blit(_ef2.render(_line2[:90], True, (255, 80, 80)), (10, _y2)); _y2 += 22
+        pygame.display.flip()
+        while True:
+            for _e2 in pygame.event.get():
+                if _e2.type == pygame.QUIT: pygame.quit(); return
+            await asyncio.sleep(0)
+
     running = True
     while running:
-        for event in pygame.event.get(): # Check all pending events
+        try:
+          for event in pygame.event.get(): # Check all pending events
             if event.type == pygame.QUIT: # Check if window close button is clicked
                 running = False # Exit game loop
             
@@ -1332,8 +1384,18 @@ async def main():
         if world.show_rules:  # Checks if rules screen should be displayed
             draw_rules_screen()  # Draws the rules overlay on top of the game
         
-        pygame.display.flip() # Update display
-        clock.tick(30) # Maintain 30 FPS
+          pygame.display.flip() # Update display
+          clock.tick(30) # Maintain 30 FPS
+        except Exception as _re:
+            import traceback; _tb3 = traceback.format_exc()
+            print("RUNTIME ERROR:", _tb3)
+            screen.fill((0,0,0))
+            _ef3 = pygame.font.Font(None, 22)
+            _y3 = 10
+            for _line3 in (["RUNTIME ERROR:"] + _tb3.splitlines())[:30]:
+                screen.blit(_ef3.render(_line3[:90], True, (255, 80, 80)), (10, _y3)); _y3 += 22
+            pygame.display.flip()
+            running = False
         await asyncio.sleep(0) # Yield control to browser — required by pygbag
 
     pygame.quit()
