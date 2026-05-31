@@ -129,13 +129,18 @@ screen = None
 clock = None
 VT323_FONT = VT323_FONT_SMALL = VT323_FONT_LARGE = VT323_FONT_TITLE = VT323_FONT_BODY = None
 
-def load_image(image_name, default_color=None, target_size=None):
+def load_image(image_name, default_color=None, target_size=None, keep_original=False):
     image_path = os.path.join(BASE_DIR, image_name)
     try:
         original_img = pygame.image.load(image_path).convert_alpha() # Optimizes images for transparency
-        
+
+        # Entities keep their full-resolution surface so they can be scaled DOWN
+        # to whatever the (dynamic) cell size needs without upscaling blur.
+        if keep_original:
+            return original_img
+
         if target_size:
-            return pygame.transform.smoothscale(original_img, target_size) 
+            return pygame.transform.smoothscale(original_img, target_size)
         else:
             img_type = image_name.split('.')[0]
             if img_type in IMAGE_SIZES:
@@ -166,6 +171,22 @@ def load_image(image_name, default_color=None, target_size=None):
                 default_color = default_color + (155,)
             pygame.draw.rect(surf, default_color, surf.get_rect())
         return surf
+
+# Cache of (image id, width, height) -> smoothscaled surface, so we scale each
+# full-res entity image from the original only once per distinct target size
+# (crisp results, no per-frame re-scaling cost).
+_scaled_img_cache = {}
+def get_scaled(img, size):
+    """Smoothscale `img` to `size` (downscaling from the full-res original),
+    caching the result so repeated frames at the same cell size are cheap."""
+    w = max(1, int(round(size[0])))
+    h = max(1, int(round(size[1])))
+    key = (id(img), w, h)
+    scaled = _scaled_img_cache.get(key)
+    if scaled is None:
+        scaled = pygame.transform.smoothscale(img, (w, h))
+        _scaled_img_cache[key] = scaled
+    return scaled
 
 # Animation helper functions
 def get_animation_time():
@@ -802,27 +823,25 @@ def draw_game(world):
                 # Draw perceptions — small icons pinned to bottom corners
                 # Stench: bottom-left  |  Breeze: bottom-right
                 if (col, row) in current_perceptions['stench']:
-                    s_icon = pygame.transform.smoothscale(stench_img, (PERC_SIZE, PERC_SIZE))
+                    s_icon = get_scaled(stench_img, (PERC_SIZE, PERC_SIZE))
                     screen.blit(s_icon, (rect.x + 2, rect.bottom - PERC_SIZE - 2))
                 if (col, row) in current_perceptions['breeze']:
-                    b_icon = pygame.transform.smoothscale(breeze_img, (PERC_SIZE, PERC_SIZE))
+                    b_icon = get_scaled(breeze_img, (PERC_SIZE, PERC_SIZE))
                     screen.blit(b_icon, (rect.right - PERC_SIZE - 2, rect.bottom - PERC_SIZE - 2))
         
-        def place_img(img, gx, gy):
-            """Scale img proportionally to the cell size and centre it.
-
-            Images are loaded at their IMAGE_SIZES (designed for an 80px cell), so
-            we scale by cs/CELL_SIZE to keep the same proportions as the grid grows
-            (matches the browser version)."""
+        def place_img(img, gx, gy, base_size):
+            """Scale a full-res entity image to its target size for this cell and
+            centre it. `base_size` is the IMAGE_SIZES dimension (designed for an
+            80px cell); we scale that by cs/CELL_SIZE so proportions stay constant
+            as the grid grows, then smoothscale DOWN from the original for clarity."""
             factor = cs / CELL_SIZE
-            w0, h0 = img.get_size()
-            w, h = int(w0 * factor), int(h0 * factor)
+            w, h = base_size[0] * factor, base_size[1] * factor
             max_dim = cs - 8
             if max(w, h) > max_dim:
                 scale = max_dim / max(w, h)
-                w, h = int(w * scale), int(h * scale)
-            w, h = max(1, w), max(1, h)
-            scaled = pygame.transform.smoothscale(img, (w, h))
+                w, h = w * scale, h * scale
+            scaled = get_scaled(img, (w, h))
+            w, h = scaled.get_size()
             x = grid_x + gx * cs + (cs - w) // 2
             y = grid_y + gy * cs + (cs - h) // 2
             screen.blit(scaled, (x, y))
@@ -831,17 +850,15 @@ def draw_game(world):
         gx, gy = world.gold_pos
         gold_anim_elapsed = anim_time - world.gold_collect_anim_start
         if not world.has_gold and (gx, gy) in world.explored:
-            place_img(gold_img, gx, gy)
+            place_img(gold_img, gx, gy, IMAGE_SIZES['gold'])
         elif world.has_gold and world.gold_collect_anim_start > 0 and gold_anim_elapsed < world.gold_collect_anim_duration:
             progress = gold_anim_elapsed / world.gold_collect_anim_duration
             scale = 1.0 + 1.2 * progress
             alpha = int(255 * (1.0 - progress))
             factor = cs / CELL_SIZE  # keep gold sized to the (possibly scaled-up) cell
-            base_w = gold_img.get_width()  * factor
-            base_h = gold_img.get_height() * factor
-            new_w = max(1, int(base_w * scale))
-            new_h = max(1, int(base_h * scale))
-            scaled = pygame.transform.smoothscale(gold_img, (new_w, new_h))
+            new_w = max(1, int(IMAGE_SIZES['gold'][0] * factor * scale))
+            new_h = max(1, int(IMAGE_SIZES['gold'][1] * factor * scale))
+            scaled = pygame.transform.smoothscale(gold_img, (new_w, new_h)).copy()
             scaled.set_alpha(alpha)
             anim_x = grid_x + gx * cs + (cs - new_w) // 2
             anim_y = grid_y + gy * cs + (cs - new_h) // 2
@@ -849,15 +866,15 @@ def draw_game(world):
 
         # Draw Wumpus (only when alive and explored)
         if world.wumpus_alive and world.wumpus_pos in world.explored:
-            place_img(wumpus_img, *world.wumpus_pos)
+            place_img(wumpus_img, *world.wumpus_pos, IMAGE_SIZES['wumpus'])
 
         # Draw pits
         for px, py in world.pits:
             if (px, py) in world.explored:
-                place_img(pit_img, px, py)
+                place_img(pit_img, px, py, IMAGE_SIZES['pit'])
 
         # Draw agent
-        place_img(agent_img, *world.agent_pos)
+        place_img(agent_img, *world.agent_pos, IMAGE_SIZES['agent'])
         
         # Draw gold collection message
         if world.gold_collected_message: # set to "Gold collected! Return to start!"
@@ -1260,12 +1277,12 @@ async def main():
     try:
         # Load images (requires display to be initialised first)
         _stage("load images")
-        agent_img       = load_image('agent.png',       default_color=(0, 0, 255))
-        gold_img        = load_image('gold.png',         default_color=(255, 215, 0))
-        wumpus_img      = load_image('wumpus.png',       default_color=(255, 0, 0))
-        pit_img         = load_image('pit.png',          default_color=(0, 0, 0))
-        stench_img      = load_image('stench.png',       default_color=(200, 0, 0, 150))
-        breeze_img      = load_image('breeze.png',       default_color=(100, 100, 255, 150))
+        agent_img       = load_image('agent.png',       default_color=(0, 0, 255),       keep_original=True)
+        gold_img        = load_image('gold.png',         default_color=(255, 215, 0),     keep_original=True)
+        wumpus_img      = load_image('wumpus.png',       default_color=(255, 0, 0),       keep_original=True)
+        pit_img         = load_image('pit.png',          default_color=(0, 0, 0),         keep_original=True)
+        stench_img      = load_image('stench.png',       default_color=(200, 0, 0, 150),  keep_original=True)
+        breeze_img      = load_image('breeze.png',       default_color=(100, 100, 255, 150), keep_original=True)
         game_over_img   = load_image('game_over.png',    default_color=(200, 0, 0, 200),  target_size=(400, 200))
         victory_img     = load_image('victory.png',      default_color=(0, 200, 0, 200),  target_size=(400, 200))
         rock_button_img = load_image('rock_button.jpg',  default_color=(100, 100, 100),   target_size=(150, 30))
