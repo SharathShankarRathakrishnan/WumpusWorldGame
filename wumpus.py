@@ -662,16 +662,17 @@ def draw_mobile_controls(surface, world, screen_width, screen_height):
 
 
 def get_cell_size(world, screen_width, screen_height):
-    """Return the right cell size for the device.
-    Desktop: always CELL_SIZE (80px).
-    Mobile: shrinks so the grid fits above the touch controls without clutter."""
-    if not world.show_mobile_controls:
-        return CELL_SIZE
-    # Reserve ~90px for top HUD and ~250px for bottom controls
-    available_w = (screen_width  - 20) // world.grid_size
-    available_h = (screen_height - 90 - 250) // world.grid_size
-    cs = min(available_w, available_h)
-    return max(28, min(cs, CELL_SIZE))  # clamp: 28px min, 80px max
+    """Return the cell size, scaling the grid UP to fill the available space.
+
+    Mirrors the browser version's dynamic fullscreen sizing: the grid grows to
+    use the whole window (after reserving the top HUD and the bottom bar/touch
+    controls), clamped between 36px and 160px."""
+    top_hud = 90
+    bottom  = 250 if world.show_mobile_controls else 90
+    available_w = (screen_width  - 40) / world.grid_size
+    available_h = (screen_height - top_hud - bottom) / world.grid_size
+    cs = int(min(available_w, available_h))
+    return max(36, min(cs, 160))  # clamp: 36px min, 160px max
 
 
 def draw_game(world):
@@ -738,8 +739,12 @@ def draw_game(world):
             grid_x = (screen_width - grid_width)  // 2 + shake_x
             grid_y = top_hud + (avail_h - grid_height) // 2 + shake_y
         else:
+            # Desktop: centre the grid in the space below the top HUD (matches web)
+            top_hud  = 90
+            bottom   = 90
+            avail_h  = screen_height - top_hud - bottom
             grid_x = (screen_width  - grid_width)  // 2 + shake_x
-            grid_y = (screen_height - grid_height - 40) // 2 + shake_y
+            grid_y = top_hud + (avail_h - grid_height) // 2 + shake_y
         
         # Display pit count
         pit_font = VT323_FONT_SMALL
@@ -804,16 +809,23 @@ def draw_game(world):
                     screen.blit(b_icon, (rect.right - PERC_SIZE - 2, rect.bottom - PERC_SIZE - 2))
         
         def place_img(img, gx, gy):
-            """Scale img to fit the cell and centre it."""
+            """Scale img proportionally to the cell size and centre it.
+
+            Images are loaded at their IMAGE_SIZES (designed for an 80px cell), so
+            we scale by cs/CELL_SIZE to keep the same proportions as the grid grows
+            (matches the browser version)."""
+            factor = cs / CELL_SIZE
+            w0, h0 = img.get_size()
+            w, h = int(w0 * factor), int(h0 * factor)
             max_dim = cs - 8
-            w, h = img.get_size()
-            if w > max_dim or h > max_dim:
+            if max(w, h) > max_dim:
                 scale = max_dim / max(w, h)
-                img = pygame.transform.smoothscale(img, (max(1,int(w*scale)), max(1,int(h*scale))))
-                w, h = img.get_size()
+                w, h = int(w * scale), int(h * scale)
+            w, h = max(1, w), max(1, h)
+            scaled = pygame.transform.smoothscale(img, (w, h))
             x = grid_x + gx * cs + (cs - w) // 2
             y = grid_y + gy * cs + (cs - h) // 2
-            screen.blit(img, (x, y))
+            screen.blit(scaled, (x, y))
 
         # Draw gold (with pickup animation)
         gx, gy = world.gold_pos
@@ -824,7 +836,9 @@ def draw_game(world):
             progress = gold_anim_elapsed / world.gold_collect_anim_duration
             scale = 1.0 + 1.2 * progress
             alpha = int(255 * (1.0 - progress))
-            base_w, base_h = gold_img.get_width(), gold_img.get_height()
+            factor = cs / CELL_SIZE  # keep gold sized to the (possibly scaled-up) cell
+            base_w = gold_img.get_width()  * factor
+            base_h = gold_img.get_height() * factor
             new_w = max(1, int(base_w * scale))
             new_h = max(1, int(base_h * scale))
             scaled = pygame.transform.smoothscale(gold_img, (new_w, new_h))
@@ -1351,7 +1365,7 @@ async def main():
                         grid_y = 90 + ((screen_height - 90 - 250 - gh) // 2)
                     else:
                         grid_x = (screen_width - gw) // 2
-                        grid_y = (screen_height - gh - 40) // 2
+                        grid_y = 90 + ((screen_height - 90 - 90 - gh) // 2)
 
                     if (grid_x <= event.pos[0] < grid_x + gw and
                             grid_y <= event.pos[1] < grid_y + gh):
