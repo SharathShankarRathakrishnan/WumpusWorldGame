@@ -1202,12 +1202,12 @@ async def main():
             VT323_FONT_LARGE = pygame.font.Font(None, 32)
             VT323_FONT_TITLE = pygame.font.Font(None, 48)
 
-    # Show a "Loading…" frame so we know pygame is alive
-    screen.fill((20, 20, 20))
-    _dbg = pygame.font.Font(None, 36)
-    screen.blit(_dbg.render("Loading...", True, (200, 200, 200)), (WIDTH // 2 - 60, HEIGHT // 2))
+    # Show a bright loading screen for 2 seconds — confirms Python is running
+    _dbg = pygame.font.Font(None, 64)
+    screen.fill((255, 255, 0))   # bright yellow — impossible to miss
+    screen.blit(_dbg.render("LOADING...", True, (0, 0, 0)), (WIDTH // 2 - 130, HEIGHT // 2 - 32))
     pygame.display.flip()
-    await asyncio.sleep(0)
+    await asyncio.sleep(2)        # hold for 2 seconds so it's visible
 
     try:
         # Load images (requires display to be initialised first)
@@ -1377,8 +1377,8 @@ async def main():
                 _y3 += 22
 
         pygame.display.flip()
-        clock.tick(30)
         await asyncio.sleep(0)
+        clock.tick(30)
 
     pygame.quit()
 
