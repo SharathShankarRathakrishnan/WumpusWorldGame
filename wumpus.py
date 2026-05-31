@@ -127,7 +127,7 @@ IMAGE_SIZES = {
 # Display, clock, font globals — initialised inside main()
 screen = None
 clock = None
-VT323_FONT = VT323_FONT_SMALL = VT323_FONT_LARGE = VT323_FONT_TITLE = None
+VT323_FONT = VT323_FONT_SMALL = VT323_FONT_LARGE = VT323_FONT_TITLE = VT323_FONT_BODY = None
 
 def load_image(image_name, default_color=None, target_size=None):
     image_path = os.path.join(BASE_DIR, image_name)
@@ -714,7 +714,11 @@ def draw_game(world):
     shake_elapsed = anim_time - world.shake_start_time
     if 0 < shake_elapsed < world.shake_duration:
         progress = shake_elapsed / world.shake_duration
-        amplitude = world.shake_amplitude * (1 - progress)  # Decay to zero
+        # Scale the shake with cell size so it stays clearly visible even when the
+        # grid is scaled up to fill a large fullscreen display.
+        _shake_cs = get_cell_size(world, screen_width, screen_height)
+        base_amp = max(world.shake_amplitude, _shake_cs * 0.16)
+        amplitude = base_amp * (1 - progress)  # Decay to zero
         shake_x = int(amplitude * math.sin(shake_elapsed * 0.18))
         shake_y = int(amplitude * math.cos(shake_elapsed * 0.23))
 
@@ -1112,7 +1116,7 @@ def draw_rules_screen():
     # Pre-calculate panel height based on actual content so nothing gets clipped
     title_font_temp  = VT323_FONT_TITLE
     section_font_temp = VT323_FONT
-    text_font_temp   = pygame.font.Font(None, 17)
+    text_font_temp   = VT323_FONT_BODY
     needed_height = 30  # top padding
     for line in RULES_TEXT:
         if not line:
@@ -1142,7 +1146,7 @@ def draw_rules_screen():
     # Render each line of the rules text
     title_font   = VT323_FONT_TITLE
     section_font = VT323_FONT
-    text_font    = pygame.font.Font(None, 17)
+    text_font    = VT323_FONT_BODY
     
     y_offset = panel_y + 20  # Starting Y position for text (20 pixels from top of panel)
     for line in RULES_TEXT:  # Loops through each line of rules text
@@ -1188,7 +1192,7 @@ def _stage(msg):
 
 async def main():
     global screen, clock
-    global VT323_FONT, VT323_FONT_SMALL, VT323_FONT_LARGE, VT323_FONT_TITLE
+    global VT323_FONT, VT323_FONT_SMALL, VT323_FONT_LARGE, VT323_FONT_TITLE, VT323_FONT_BODY
     global agent_img, gold_img, wumpus_img, pit_img, stench_img, breeze_img
     global game_over_img, victory_img, rock_button_img, rules_button_img, gold_plate_img
     global snd_footstep, snd_gold_collected, snd_arrow_kill, snd_arrow_miss
@@ -1203,7 +1207,16 @@ async def main():
         print(f"mixer.init() failed (audio disabled): {e}")
 
     _stage("set_mode")
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    # True fullscreen — fills the entire monitor with no borders/bars, matching
+    # the browser version. The whole game already scales to screen.get_size(),
+    # so the grid grows to fill the display automatically.
+    try:
+        _desktop = pygame.display.Info()
+        screen = pygame.display.set_mode((_desktop.current_w, _desktop.current_h),
+                                         pygame.FULLSCREEN | pygame.SCALED)
+    except BaseException:
+        # Fallback to a normal window if fullscreen isn't available
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
     clock = pygame.time.Clock()
     await asyncio.sleep(0)
@@ -1215,17 +1228,20 @@ async def main():
         VT323_FONT_SMALL = pygame.font.Font(_font_path, 20)
         VT323_FONT_LARGE = pygame.font.Font(_font_path, 32)
         VT323_FONT_TITLE = pygame.font.Font(_font_path, 48)
+        VT323_FONT_BODY  = pygame.font.Font(_font_path, 20)
     except BaseException:
         try:
             VT323_FONT       = pygame.font.SysFont('Courier New', 24, bold=True)
             VT323_FONT_SMALL = pygame.font.SysFont('Courier New', 20, bold=True)
             VT323_FONT_LARGE = pygame.font.SysFont('Courier New', 32, bold=True)
             VT323_FONT_TITLE = pygame.font.SysFont('Courier New', 48, bold=True)
+            VT323_FONT_BODY  = pygame.font.SysFont('Courier New', 18, bold=True)
         except BaseException:
             VT323_FONT       = pygame.font.Font(None, 24)
             VT323_FONT_SMALL = pygame.font.Font(None, 20)
             VT323_FONT_LARGE = pygame.font.Font(None, 32)
             VT323_FONT_TITLE = pygame.font.Font(None, 48)
+            VT323_FONT_BODY  = pygame.font.Font(None, 18)
 
     try:
         # Load images (requires display to be initialised first)
@@ -1371,6 +1387,10 @@ async def main():
                 world.show_mobile_controls = True
 
             elif event.type == pygame.KEYDOWN:
+                # Esc quits — needed because true fullscreen has no window close button
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                    continue
                 if world.show_rules:
                     world.show_rules = False
                     continue

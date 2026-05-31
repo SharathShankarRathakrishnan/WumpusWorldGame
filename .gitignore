@@ -3,9 +3,4 @@ __pycache__/
 *.pyo
 .DS_Store
 Thumbs.db
-build/
-web_src/
-webgame/
-wumpus-itch.zip
-range_server.py
 .claude/
