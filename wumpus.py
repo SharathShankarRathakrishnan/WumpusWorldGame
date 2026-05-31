@@ -10,10 +10,6 @@ import asyncio # Required by pygbag for web builds
 # Base directory: folder where wumpus.py lives, so images are always found
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Initialize all pygame modules
-pygame.init()
-pygame.mixer.init()
-
 def load_sound(filename):
     """Load a sound file from the sounds subfolder, return None silently if missing."""
     path = os.path.join(BASE_DIR, 'sounds', filename)
@@ -36,27 +32,9 @@ def change_speed(sound, speed):
         print(f"change_speed failed ({e}), using original sound.")
         return sound
 
-# Load sound effects
-snd_footstep         = load_sound('footstep.ogg')
-snd_gold_collected   = load_sound('gold_collected.ogg')
-snd_arrow_kill       = load_sound('arrow_sound+monster_dying.ogg')
-snd_arrow_miss       = load_sound('arrow_sound.ogg')
-snd_monster_footstep = load_sound('monster_footsteps.ogg')
-snd_monster_scream   = load_sound('monster_scream.ogg')
-snd_falling_scream   = load_sound('falling_scream.ogg')
-
-if snd_gold_collected:
-    snd_gold_collected = change_speed(snd_gold_collected, 1.5)
-if snd_arrow_kill:
-    snd_arrow_kill = change_speed(snd_arrow_kill, 1.5)
-if snd_arrow_miss:
-    snd_arrow_miss = change_speed(snd_arrow_miss, 1.5)
-if snd_monster_scream:
-    snd_monster_scream = change_speed(snd_monster_scream, 2.5)
-if snd_falling_scream:
-    snd_falling_scream = change_speed(snd_falling_scream, 1.25)
-if snd_monster_footstep:
-    snd_monster_footstep = change_speed(snd_monster_footstep, 1.5)
+# Sound globals — loaded inside main() after pygame.mixer.init()
+snd_footstep = snd_gold_collected = snd_arrow_kill = snd_arrow_miss = None
+snd_monster_footstep = snd_monster_scream = snd_falling_scream = None
 
 def play(sound):
     """Play a sound safely — does nothing if sound failed to load."""
@@ -141,24 +119,10 @@ IMAGE_SIZES = {
     'breeze': (75, 30)
 }
 
-# Set up the display
-screen = pygame.display.set_mode((WIDTH, HEIGHT)) # Creates the game window with the specified dimensions
-pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
-clock = pygame.time.Clock() # Tracks time and ensures consistent game speed across devices
-
-# Load VT323 arcade font for game text
-try:
-    _font_path = os.path.join(BASE_DIR, 'VT323-Regular.ttf')
-    VT323_FONT = pygame.font.Font(_font_path, 24) # Load the arcade-style VT323 font
-    VT323_FONT_SMALL = pygame.font.Font(_font_path, 20) # Smaller size for UI elements
-    VT323_FONT_LARGE = pygame.font.Font(_font_path, 32) # Larger size for titles
-    VT323_FONT_TITLE = pygame.font.Font(_font_path, 48) # Extra large for main titles
-except:
-    # Fallback to system fonts if VT323 not available
-    VT323_FONT = pygame.font.SysFont('Courier New', 24, bold=True)
-    VT323_FONT_SMALL = pygame.font.SysFont('Courier New', 20, bold=True)
-    VT323_FONT_LARGE = pygame.font.SysFont('Courier New', 32, bold=True)
-    VT323_FONT_TITLE = pygame.font.SysFont('Courier New', 48, bold=True)
+# Display, clock, font globals — initialised inside main()
+screen = None
+clock = None
+VT323_FONT = VT323_FONT_SMALL = VT323_FONT_LARGE = VT323_FONT_TITLE = None
 
 def load_image(image_name, default_color=None, target_size=None):
     image_path = os.path.join(BASE_DIR, image_name)
@@ -278,18 +242,9 @@ def get_shimmer_alpha(animation_time, period=2000):
     alpha = int(50 + 50 * math.sin(2 * math.pi * elapsed / period))
     return alpha
 
-# Load all game element images
-agent_img = load_image('agent.png', default_color=(0, 0, 255))
-gold_img = load_image('gold.png', default_color=(255, 215, 0))
-wumpus_img = load_image('wumpus.png', default_color=(255, 0, 0))
-pit_img = load_image('pit.png', default_color=(0, 0, 0))
-stench_img = load_image('stench.png', default_color=(200, 0, 0, 150))
-breeze_img = load_image('breeze.png', default_color=(100, 100, 255, 150))
-game_over_img = load_image('game_over.png', default_color=(200, 0, 0, 200), target_size=(400, 200))
-victory_img = load_image('victory.png', default_color=(0, 200, 0, 200), target_size=(400, 200))
-rock_button_img = load_image('rock_button.jpg', default_color=(100, 100, 100), target_size=(150, 30))
-rules_button_img = load_image('rules.png', default_color=(100, 100, 100), target_size=(80, 25))
-gold_plate_img = load_image('gold_plate.png', default_color=(200, 150, 0), target_size=(200, 50))
+# Image globals — loaded inside main() after display is ready
+agent_img = gold_img = wumpus_img = pit_img = stench_img = breeze_img = None
+game_over_img = victory_img = rock_button_img = rules_button_img = gold_plate_img = None
 
 class GameWorld:
     def __init__(self):
@@ -1210,7 +1165,63 @@ def draw_rules_screen():
         y_offset += text_surface.get_height() + 5  # Moves down for next line (with 5px gap)
 
 async def main():
-    global screen
+    global screen, clock
+    global VT323_FONT, VT323_FONT_SMALL, VT323_FONT_LARGE, VT323_FONT_TITLE
+    global agent_img, gold_img, wumpus_img, pit_img, stench_img, breeze_img
+    global game_over_img, victory_img, rock_button_img, rules_button_img, gold_plate_img
+    global snd_footstep, snd_gold_collected, snd_arrow_kill, snd_arrow_miss
+    global snd_monster_footstep, snd_monster_scream, snd_falling_scream
+
+    # ── Initialise pygame (must happen inside async main for pygbag/web) ──
+    pygame.init()
+    pygame.mixer.init()
+
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Wumpus World by Sharath Shankar Rathakrishnan")
+    clock = pygame.time.Clock()
+
+    # Load fonts
+    try:
+        _font_path = os.path.join(BASE_DIR, 'VT323-Regular.ttf')
+        VT323_FONT       = pygame.font.Font(_font_path, 24)
+        VT323_FONT_SMALL = pygame.font.Font(_font_path, 20)
+        VT323_FONT_LARGE = pygame.font.Font(_font_path, 32)
+        VT323_FONT_TITLE = pygame.font.Font(_font_path, 48)
+    except Exception:
+        VT323_FONT       = pygame.font.SysFont('Courier New', 24, bold=True)
+        VT323_FONT_SMALL = pygame.font.SysFont('Courier New', 20, bold=True)
+        VT323_FONT_LARGE = pygame.font.SysFont('Courier New', 32, bold=True)
+        VT323_FONT_TITLE = pygame.font.SysFont('Courier New', 48, bold=True)
+
+    # Load images (requires display to be initialised first)
+    agent_img       = load_image('agent.png',       default_color=(0, 0, 255))
+    gold_img        = load_image('gold.png',         default_color=(255, 215, 0))
+    wumpus_img      = load_image('wumpus.png',       default_color=(255, 0, 0))
+    pit_img         = load_image('pit.png',          default_color=(0, 0, 0))
+    stench_img      = load_image('stench.png',       default_color=(200, 0, 0, 150))
+    breeze_img      = load_image('breeze.png',       default_color=(100, 100, 255, 150))
+    game_over_img   = load_image('game_over.png',    default_color=(200, 0, 0, 200),  target_size=(400, 200))
+    victory_img     = load_image('victory.png',      default_color=(0, 200, 0, 200),  target_size=(400, 200))
+    rock_button_img = load_image('rock_button.jpg',  default_color=(100, 100, 100),   target_size=(150, 30))
+    rules_button_img= load_image('rules.png',        default_color=(100, 100, 100),   target_size=(80, 25))
+    gold_plate_img  = load_image('gold_plate.png',   default_color=(200, 150, 0),     target_size=(200, 50))
+
+    # Load sounds (requires mixer to be initialised first)
+    snd_footstep         = load_sound('footstep.ogg')
+    snd_gold_collected   = load_sound('gold_collected.ogg')
+    snd_arrow_kill       = load_sound('arrow_sound+monster_dying.ogg')
+    snd_arrow_miss       = load_sound('arrow_sound.ogg')
+    snd_monster_footstep = load_sound('monster_footsteps.ogg')
+    snd_monster_scream   = load_sound('monster_scream.ogg')
+    snd_falling_scream   = load_sound('falling_scream.ogg')
+
+    if snd_gold_collected:   snd_gold_collected   = change_speed(snd_gold_collected,   1.5)
+    if snd_arrow_kill:       snd_arrow_kill        = change_speed(snd_arrow_kill,       1.5)
+    if snd_arrow_miss:       snd_arrow_miss        = change_speed(snd_arrow_miss,       1.5)
+    if snd_monster_scream:   snd_monster_scream    = change_speed(snd_monster_scream,   2.5)
+    if snd_falling_scream:   snd_falling_scream    = change_speed(snd_falling_scream,   1.25)
+    if snd_monster_footstep: snd_monster_footstep  = change_speed(snd_monster_footstep, 1.5)
+
     world = GameWorld() # Creates the game world with default 6x6 grid
     running = True
     while running:
